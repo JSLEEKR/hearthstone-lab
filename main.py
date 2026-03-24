@@ -27,7 +27,9 @@ def main():
         sys.exit(1)
 
     if args.command == "serve":
-        print("Web server not yet implemented (sub-project 6)")
+        import uvicorn
+        from config import settings
+        uvicorn.run("src.web.app:app", host=settings.WEB_HOST, port=settings.WEB_PORT, reload=True)
     elif args.command == "sync-cards":
         import asyncio
         from config import settings
@@ -102,9 +104,19 @@ def main():
                                card_db=card_db, max_turns=45)
             print(f"Winner: {result.winner or 'Draw'}, Turns: {result.turns}")
     elif args.command == "update-tierlist":
-        print("Tier list not yet implemented (sub-project 5)")
+        from src.scheduler.jobs import job_update_tierlist
+        job_update_tierlist()
+        print("Tier list updated.")
     elif args.command == "scheduler":
-        print("Scheduler not yet implemented (sub-project 6)")
+        from src.scheduler.jobs import create_scheduler
+        from config import settings
+        print("Starting scheduler (daily jobs at {:02d}:{:02d})...".format(
+            settings.SCHEDULER_CRON_HOUR, settings.SCHEDULER_CRON_MINUTE))
+        sched = create_scheduler()
+        try:
+            sched.start()
+        except KeyboardInterrupt:
+            print("Scheduler stopped.")
 
 
 if __name__ == "__main__":
