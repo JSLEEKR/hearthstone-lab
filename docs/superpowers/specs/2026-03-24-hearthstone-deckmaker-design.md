@@ -4,6 +4,10 @@
 
 Python 기반 하스스톤 시뮬레이터, 덱메이커, 덱 티어리스트 시스템. HearthSim 생태계의 기존 라이브러리(python-hearthstone, Fireplace)를 활용하여 개발 효율을 극대화한다. HSReplay 통계와 자체 AI 시뮬레이션 결과를 합산하여 하이브리드 티어리스트를 산출한다.
 
+## Access Model
+
+싱글 유저 로컬 도구. 인증/권한 관리 불필요. 웹 대시보드는 localhost에서만 서빙.
+
 ## Architecture
 
 **모놀리식 구조** - 하나의 Python 프로젝트 안에서 모듈로 분리.
@@ -39,7 +43,7 @@ hearthstone_deckmaker/
 | Scheduler | APScheduler |
 | AI Algorithm | MCTS (Monte Carlo Tree Search) |
 | Card Data | python-hearthstone + python-hearthstone-data |
-| Simulation Base | Fireplace (reference/fork) |
+| Simulation Base | Fireplace 소스 참조하여 자체 엔진 구현 (fork 아님) |
 | Image Processing | Pillow |
 | Charts | Chart.js |
 | Testing | pytest |
@@ -85,9 +89,11 @@ hearthstone_deckmaker/
 ### deck_cards
 | Column | Type | Description |
 |--------|------|-------------|
-| deck_id | Integer FK | decks.id |
-| card_id | String FK | cards.card_id |
-| count | Integer | 1 or 2 |
+| deck_id | Integer FK | decks.id (composite PK) |
+| card_id | Integer FK | cards.id (composite PK) |
+| count | Integer | 1 or 2 (CHECK 제약조건) |
+
+PK: `(deck_id, card_id)` 복합 기본키
 
 ### simulations
 | Column | Type | Description |
@@ -95,7 +101,7 @@ hearthstone_deckmaker/
 | id | Integer PK | Auto increment |
 | deck_a_id | Integer FK | decks.id |
 | deck_b_id | Integer FK | decks.id |
-| winner_id | Integer FK | decks.id |
+| winner_id | Integer FK nullable | decks.id (NULL = 무승부) |
 | turns | Integer | 총 턴 수 |
 | played_at | DateTime | 시뮬레이션 실행일 |
 
@@ -164,11 +170,13 @@ hearthstone_deckmaker/
 
 ### 3. simulator/ - 게임 시뮬레이션 엔진
 
-**engine.py**: 게임 엔진 (Fireplace 참조/기반)
+**engine.py**: 자체 게임 엔진 (Fireplace 소스를 참조하되 직접 구현)
+- Fireplace는 2020년 이후 미유지보수 → fork가 아닌 참조 구현으로 신규 확장팩 대응
 - GameState 관리: 턴, 마나, 핸드, 보드, 덱
 - 턴 진행 루프: 드로우 → 행동 → 턴 종료
 - 전투 처리: 공격, 피해, 체력, 사망 처리
 - 주문 처리: 대상 선택, 효과 적용
+- 영웅 능력 처리: 직업별 기본 영웅 능력 + 교체 영웅 능력
 - 피로 데미지, 비밀, 무기 처리
 
 **effects.py**: 카드 효과 시스템 (이벤트 기반)
@@ -182,11 +190,13 @@ hearthstone_deckmaker/
 - 가능한 행동 열거 → N회 rollout → 최고 승률 행동 선택
 - 룰 기반 휴리스틱 보조 (마나 효율, 유리한 교환 우선)
 - 시뮬레이션 깊이/횟수로 AI 강도 조절
+- 벌크 시뮬레이션 모드: MCTS_ITERATIONS를 200으로 낮춰 일일 배치 실행 성능 확보
+- multiprocessing으로 매치업별 병렬 실행 (CPU 코어 수 기반)
 
 **match.py**: 매치 실행
 - 덱 A vs 덱 B 매치업 생성
-- 셔플 → 멀리건 → 게임 루프
-- 최대 45턴 제한 (무한 루프 방지)
+- 셔플 → 멀리건 (AI 멀리건 전략: 마나 커브 기반, 저코스트 카드 유지) → 게임 루프
+- 최대 45턴 제한 → 45턴 초과 시 무승부 (winner_id = NULL)
 - 결과 기록 → simulations 테이블
 - 매치업당 N회 반복 (기본 100회, 설정 가능)
 
@@ -229,6 +239,10 @@ hearthstone_deckmaker/
 ```
 combined_winrate = (sim_winrate × weight_sim) + (hsreplay_winrate × weight_hsreplay)
 기본: weight_sim = 0.5, weight_hsreplay = 0.5 (config.py에서 조정 가능)
+
+폴백 로직:
+- 한쪽 데이터만 있을 경우 → 해당 소스 100% 가중치
+- 양쪽 모두 없을 경우 → 티어리스트에서 제외
 ```
 
 **ranker.py**: 티어 배정
@@ -252,6 +266,16 @@ S: 55%+  |  A: 52~55%  |  B: 49~52%  |  C: 46~49%  |  D: 46% 미만
 - **덱빌더 (/builder)**: 카드 이미지 갤러리, 필터링, 드래그&드롭 덱 구성, 실시간 마나 커브, 덱 코드 생성/가져오기, AI 추천 버튼
 - **카드 DB (/cards)**: 전체 카드 갤러리, 확장팩/직업/비용/레어도 필터, 카드 상세 모달
 - **시뮬레이션 (/simulation)**: 덱 vs 덱 시뮬레이션 실행, 결과 요약, 매치업 매트릭스
+
+**주요 API 엔드포인트 (HTMX):**
+- `GET /api/cards?class=&cost=&rarity=&set=&q=` - 카드 검색/필터
+- `POST /api/deck/add-card` - 덱에 카드 추가
+- `POST /api/deck/remove-card` - 덱에서 카드 제거
+- `POST /api/deck/import` - 덱스트링으로 덱 가져오기
+- `GET /api/deck/{id}/export` - 덱스트링 내보내기
+- `POST /api/deck/ai-recommend` - AI 덱 추천 (현재 부분 덱 기반 완성 또는 아키타입 기반 신규 생성)
+- `POST /api/simulation/run` - 덱 vs 덱 시뮬레이션 실행
+- `GET /api/tierlist?format=standard|wild` - 티어리스트 데이터
 
 HDT 스타일 카드 타일 렌더링:
 ```
@@ -316,6 +340,7 @@ BLIZZARD_CLIENT_SECRET = ""
 SIM_MATCHES_PER_MATCHUP = 100
 SIM_MAX_TURNS = 45
 MCTS_ITERATIONS = 1000
+MCTS_ITERATIONS_BULK = 200
 
 # Tier List
 TIER_WEIGHT_SIM = 0.5
@@ -343,3 +368,32 @@ IMAGE_BASE_URL = "https://art.hearthstonejson.com/v1/render/latest/koKR/512x"
 6. **웹 대시보드 + 스케줄러**: web + scheduler 모듈
 
 각 서브프로젝트는 독립적으로 테스트 가능하며, 순서대로 의존성을 가짐.
+
+## Error Handling & Resilience
+
+| 상황 | 대응 |
+|------|------|
+| Blizzard API 429 (rate limit) | 지수 백오프 재시도 (최대 3회) |
+| Blizzard API 인증 실패 | 토큰 재발급 후 재시도 |
+| HearthstoneJSON 다운 | 로컬 캐시된 마지막 데이터 사용 |
+| HSReplay API 변경/실패 | Playwright 폴백 시도 → 실패 시 시뮬레이션 전용 티어리스트 |
+| 시뮬레이션 45턴 초과 | 무승부 처리 (winner_id = NULL) |
+| 스케줄러 작업 부분 실패 | 실패한 단계만 재시도, 나머지 단계는 계속 진행 |
+| SQLite 동시 쓰기 충돌 | WAL 모드 활성화, 동시성 이슈 심화 시 PostgreSQL 전환 |
+
+**로깅**: Python logging 모듈, 모듈별 logger. 일일 작업 결과는 로그 파일에 기록.
+
+**DB 인덱스 가이드라인** (Alembic 마이그레이션에서 생성):
+- `deck_cards.card_id` - FK 조인
+- `simulations.deck_a_id`, `simulations.deck_b_id` - 매치업 쿼리
+- `hsreplay_stats(deck_id, collected_at)` - 최신 통계 조회
+- `tier_history(deck_id, recorded_at)` - 변동 추이
+- `cards(hero_class, mana_cost)` - 카드 필터링
+
+**승률 단위**: 모든 winrate 필드는 0~100 퍼센트 값 (예: 55.3 = 55.3%)
+
+## Card Rotation Handling
+
+- `is_standard` 플래그는 카드 수집 시 HearthstoneJSON/Blizzard API의 `set` 정보 기반으로 자동 갱신
+- 새 하스스톤 연도 시작 시 (매년 4월경) 카드 동기화 실행하면 자동 반영
+- 수동 갱신도 가능: `python main.py sync-cards --update-standard`
