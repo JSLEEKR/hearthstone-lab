@@ -68,7 +68,39 @@ def main():
 
         asyncio.run(run_sync())
     elif args.command == "simulate":
-        print("Simulation not yet implemented (sub-project 3)")
+        from src.simulator.match import run_match, MatchResult
+
+        # Demo: run a simple test match
+        card_db = {
+            f"card_{i}": {
+                "card_id": f"card_{i}", "card_type": "MINION",
+                "mana_cost": (i % 8) + 1, "attack": (i % 5) + 1,
+                "health": (i % 5) + 1, "mechanics": [], "name": f"Card {i}",
+            }
+            for i in range(30)
+        }
+        deck = [f"card_{i}" for i in range(15)] * 2
+
+        if args.bulk:
+            print("Running bulk simulation (10 matches)...")
+            wins = {"A": 0, "B": 0, "draw": 0}
+            for i in range(10):
+                result = run_match(deck_a=list(deck), deck_b=list(deck),
+                                   hero_a="MAGE", hero_b="WARRIOR",
+                                   card_db=card_db, max_turns=45)
+                if result.winner == "A":
+                    wins["A"] += 1
+                elif result.winner == "B":
+                    wins["B"] += 1
+                else:
+                    wins["draw"] += 1
+            print(f"Results: {wins}")
+        else:
+            print("Running single match...")
+            result = run_match(deck_a=list(deck), deck_b=list(deck),
+                               hero_a="MAGE", hero_b="WARRIOR",
+                               card_db=card_db, max_turns=45)
+            print(f"Winner: {result.winner or 'Draw'}, Turns: {result.turns}")
     elif args.command == "update-tierlist":
         print("Tier list not yet implemented (sub-project 5)")
     elif args.command == "scheduler":
