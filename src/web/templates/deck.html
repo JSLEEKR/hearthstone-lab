@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ deck.name }} - HS Deck Maker{% endblock %}
+{% block content %}
+<h1>{{ deck.name }}</h1>
+<p style="color:var(--text-secondary);">{{ deck.hero_class }} | {{ deck.format }}</p>
+
+<div class="builder-layout">
+    <div>
+        <h3>마나 커브</h3>
+        <canvas id="mana-chart" height="200"></canvas>
+
+        <h3 style="margin-top:1.5rem;">덱스트링 내보내기</h3>
+        <div style="margin:0.5rem 0;">
+            <button class="btn btn-primary" onclick="exportDeck()">덱 코드 복사</button>
+            <span id="export-status"></span>
+        </div>
+    </div>
+    <div class="deck-list-panel">
+        <h3>카드 목록 ({{ cards|length }}종)</h3>
+        {% for card in cards %}
+        <div class="deck-card-row">
+            <span class="cost">{{ card.mana_cost }}</span>
+            <span class="name">{{ card.name_ko or card.name }}</span>
+            <span class="count">x{{ card.count }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+const ctx = document.getElementById('mana-chart').getContext('2d');
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: ['0', '1', '2', '3', '4', '5', '6', '7+'],
+        datasets: [{
+            label: '카드 수',
+            data: {{ mana_curve | tojson }},
+            backgroundColor: '#0070dd',
+            borderRadius: 4,
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: { beginAtZero: true, ticks: { stepSize: 1, color: '#a8a8b8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+            x: { ticks: { color: '#a8a8b8' }, grid: { display: false } },
+        }
+    }
+});
+
+async function exportDeck() {
+    let res = await fetch('/api/deck/{{ deck.id }}/export');
+    let data = await res.json();
+    if (data.success) {
+        navigator.clipboard.writeText(data.deckstring);
+        document.getElementById('export-status').textContent = '복사됨!';
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}티어리스트 - HS Deck Maker{% endblock %}
+{% block content %}
+<h1>덱 티어리스트</h1>
+<div class="format-toggle">
+    <a href="/?format=standard" class="{% if format == 'standard' %}active{% endif %}">스탠다드</a>
+    <a href="/?format=wild" class="{% if format == 'wild' %}active{% endif %}">와일드</a>
+</div>
+
+{% for tier_name in ['S', 'A', 'B', 'C', 'D'] %}
+<div class="tier-section">
+    <div class="tier-header tier-{{ tier_name }}">{{ tier_name }} Tier</div>
+    {% for deck in tiers[tier_name] %}
+    <a href="/deck/{{ deck.deck_id }}" style="text-decoration:none;color:inherit;">
+        <div class="deck-row">
+            <div>
+                <span class="deck-name">{{ deck.deck_name }}</span>
+                <span class="deck-class">{{ deck.hero_class }}</span>
+            </div>
+            <span class="deck-winrate">{{ "%.1f"|format(deck.combined_winrate) }}%</span>
+        </div>
+    </a>
+    {% endfor %}
+    {% if not tiers[tier_name] %}
+    <div class="deck-row" style="color: var(--text-secondary);">이 티어에 덱이 없습니다.</div>
+    {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

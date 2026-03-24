@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}덱빌더 - HS Deck Maker{% endblock %}
+{% block content %}
+<h1>덱빌더</h1>
+<div class="builder-layout" x-data="deckBuilder()">
+    <div>
+        <div class="filter-bar">
+            <select x-model="heroClass" @change="searchCards()">
+                <option value="">직업 선택</option>
+                <option value="MAGE">마법사</option>
+                <option value="WARRIOR">전사</option>
+                <option value="PALADIN">성기사</option>
+                <option value="HUNTER">사냥꾼</option>
+                <option value="ROGUE">도적</option>
+                <option value="PRIEST">사제</option>
+                <option value="SHAMAN">주술사</option>
+                <option value="WARLOCK">흑마법사</option>
+                <option value="DRUID">드루이드</option>
+                <option value="DEMONHUNTER">악마사냥꾼</option>
+                <option value="DEATHKNIGHT">죽음의 기사</option>
+            </select>
+            <input type="text" placeholder="카드 검색..." x-model="searchQuery" @input.debounce.300ms="searchCards()">
+            <button class="btn btn-primary" @click="aiRecommend()">AI 추천</button>
+        </div>
+        <div class="card-grid" id="builder-cards">
+            <template x-for="card in cards" :key="card.card_id">
+                <div class="card-tile" @click="addCard(card)">
+                    <span class="card-cost" x-text="card.mana_cost"></span>
+                    <span class="card-name" x-text="card.name_ko || card.name"></span>
+                    <div style="font-size:0.75rem;color:var(--text-secondary)" x-text="card.card_type + ' | ' + card.rarity"></div>
+                </div>
+            </template>
+        </div>
+    </div>
+    <div class="deck-list-panel">
+        <h3>덱 (<span x-text="totalCards"></span>/30)</h3>
+        <div class="mana-curve">
+            <template x-for="(count, i) in manaCurve" :key="i">
+                <div>
+                    <div class="mana-bar" :style="'height:' + (count * 12) + 'px'"></div>
+                    <div class="mana-label" x-text="i < 7 ? i : '7+'"></div>
+                </div>
+            </template>
+        </div>
+        <template x-for="card in deckCards" :key="card.card_id">
+            <div class="deck-card-row">
+                <span class="cost" x-text="card.mana_cost"></span>
+                <span class="name" x-text="card.name_ko || card.name"></span>
+                <span class="count" x-text="'x' + card.count"></span>
+                <button style="background:none;color:var(--accent);border:none;cursor:pointer;" @click="removeCard(card)">X</button>
+            </div>
+        </template>
+        <div style="margin-top:1rem;">
+            <input type="text" placeholder="덱 코드 붙여넣기..." x-model="importCode" style="width:100%;padding:0.4rem;border-radius:4px;border:1px solid rgba(255,255,255,0.1);background:var(--bg-primary);color:var(--text-primary);">
+            <button class="btn btn-secondary" style="width:100%;margin-top:0.5rem;" @click="importDeck()">가져오기</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function deckBuilder() {
+    return {
+        heroClass: '', searchQuery: '', cards: [], deckCards: [],
+        deckId: null, importCode: '',
+        get totalCards() { return this.deckCards.reduce((s, c) => s + c.count, 0); },
+        get manaCurve() {
+            let curve = Array(8).fill(0);
+            this.deckCards.forEach(c => { curve[Math.min(c.mana_cost, 7)] += c.count; });
+            return curve;
+        },
+        async searchCards() {
+            let params = new URLSearchParams();
+            if (this.searchQuery) params.set('q', this.searchQuery);
+            if (this.heroClass) params.set('hero_class', this.heroClass);
+            let res = await fetch('/api/cards?' + params);
+            let data = await res.json();
+            this.cards = data.cards || [];
+        },
+        async createDeckIfNeeded() {
+            if (this.deckId) return;
+            let res = await fetch('/api/deck/create?name=New+Deck&hero_class=' + (this.heroClass || 'NEUTRAL'), {method:'POST'});
+            let data = await res.json();
+            this.deckId = data.deck_id;
+        },
+        async addCard(card) {
+            await this.createDeckIfNeeded();
+            let res = await fetch(`/api/deck/add-card?deck_id=${this.deckId}&card_id=${card.card_id}`, {method:'POST'});
+            let data = await res.json();
+            if (data.success) {
+                let existing = this.deckCards.find(c => c.card_id === card.card_id);
+                if (existing) existing.count++;
+                else this.deckCards.push({...card, count: 1});
+                this.deckCards.sort((a, b) => a.mana_cost - b.mana_cost || a.name.localeCompare(b.name));
+            }
+        },
+        async removeCard(card) {
+            let res = await fetch(`/api/deck/remove-card?deck_id=${this.deckId}&card_id=${card.card_id}`, {method:'POST'});
+            let data = await res.json();
+            if (data.success) {
+                if (card.count > 1) card.count--;
+                else this.deckCards = this.deckCards.filter(c => c.card_id !== card.card_id);
+            }
+        },
+        async aiRecommend() {
+            if (!this.heroClass) { alert('직업을 먼저 선택하세요.'); return; }
+            let res = await fetch(`/api/deck/ai-recommend?hero_class=${this.heroClass}`, {method:'POST'});
+            let data = await res.json();
+            this.deckCards = (data.cards || []).sort((a, b) => a.mana_cost - b.mana_cost);
+        },
+        async importDeck() {
+            if (!this.importCode) return;
+            let res = await fetch(`/api/deck/import?deckstring=${encodeURIComponent(this.importCode)}`, {method:'POST'});
+            let data = await res.json();
+            if (data.success) { window.location.href = '/deck/' + data.deck_id; }
+        },
+        init() { this.searchCards(); }
+    }
+}
+</script>
+{% endblock %}

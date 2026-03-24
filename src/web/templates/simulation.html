@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}시뮬레이션 - HS Deck Maker{% endblock %}
+{% block content %}
+<h1>덱 시뮬레이션</h1>
+
+<div x-data="simRunner()">
+    <div class="filter-bar">
+        <select x-model="deckAId">
+            <option value="">덱 A 선택</option>
+            {% for deck in decks %}
+            <option value="{{ deck.id }}">{{ deck.name }} ({{ deck.hero_class }})</option>
+            {% endfor %}
+        </select>
+        <span style="color:var(--gold);font-weight:bold;">VS</span>
+        <select x-model="deckBId">
+            <option value="">덱 B 선택</option>
+            {% for deck in decks %}
+            <option value="{{ deck.id }}">{{ deck.name }} ({{ deck.hero_class }})</option>
+            {% endfor %}
+        </select>
+        <select x-model="numMatches">
+            <option value="10">10 매치</option>
+            <option value="50">50 매치</option>
+            <option value="100">100 매치</option>
+        </select>
+        <button class="btn btn-primary" @click="runSim()" :disabled="running">
+            <span x-show="!running">시뮬레이션 실행</span>
+            <span x-show="running">실행 중...</span>
+        </button>
+    </div>
+
+    <div x-show="result" class="sim-result">
+        <h3>결과</h3>
+        <div class="sim-bar">
+            <div class="sim-bar-a" :style="'width:' + (result?.deck_a_winrate || 0) + '%'"></div>
+            <div class="sim-bar-b" :style="'width:' + (result?.deck_b_winrate || 0) + '%'"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+            <span>덱 A: <strong x-text="result?.deck_a_wins + '승'"></strong> (<span x-text="result?.deck_a_winrate + '%'"></span>)</span>
+            <span>무승부: <strong x-text="result?.draws"></strong></span>
+            <span>덱 B: <strong x-text="result?.deck_b_wins + '승'"></strong> (<span x-text="result?.deck_b_winrate + '%'"></span>)</span>
+        </div>
+    </div>
+</div>
+
+<script>
+function simRunner() {
+    return {
+        deckAId: '', deckBId: '', numMatches: '10', running: false, result: null,
+        async runSim() {
+            if (!this.deckAId || !this.deckBId) { alert('두 덱을 모두 선택하세요.'); return; }
+            this.running = true;
+            this.result = null;
+            try {
+                let res = await fetch(`/api/simulation/run?deck_a_id=${this.deckAId}&deck_b_id=${this.deckBId}&num_matches=${this.numMatches}`, {method:'POST'});
+                this.result = await res.json();
+            } finally { this.running = false; }
+        }
+    }
+}
+</script>
+{% endblock %}

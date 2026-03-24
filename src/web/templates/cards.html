@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}카드 DB - HS Deck Maker{% endblock %}
+{% block content %}
+<h1>카드 데이터베이스</h1>
+
+<div class="filter-bar" x-data="{ q: '', hero_class: '', cost: '', rarity: '' }">
+    <input type="text" placeholder="카드 이름 검색..." x-model="q"
+           hx-get="/api/cards" hx-trigger="keyup changed delay:300ms"
+           hx-target="#card-results" hx-include="[name]" name="q">
+    <select name="hero_class" x-model="hero_class"
+            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
+        <option value="">전체 직업</option>
+        <option value="MAGE">마법사</option>
+        <option value="WARRIOR">전사</option>
+        <option value="PALADIN">성기사</option>
+        <option value="HUNTER">사냥꾼</option>
+        <option value="ROGUE">도적</option>
+        <option value="PRIEST">사제</option>
+        <option value="SHAMAN">주술사</option>
+        <option value="WARLOCK">흑마법사</option>
+        <option value="DRUID">드루이드</option>
+        <option value="DEMONHUNTER">악마사냥꾼</option>
+        <option value="DEATHKNIGHT">죽음의 기사</option>
+        <option value="NEUTRAL">중립</option>
+    </select>
+    <select name="rarity"
+            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
+        <option value="">전체 레어도</option>
+        <option value="COMMON">일반</option>
+        <option value="RARE">희귀</option>
+        <option value="EPIC">영웅</option>
+        <option value="LEGENDARY">전설</option>
+    </select>
+</div>
+
+<div id="card-results" class="card-grid"
+     hx-get="/api/cards" hx-trigger="load" hx-swap="innerHTML">
+    <p>카드를 불러오는 중...</p>
+</div>
+{% endblock %}
