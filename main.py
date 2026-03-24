@@ -29,7 +29,44 @@ def main():
     if args.command == "serve":
         print("Web server not yet implemented (sub-project 6)")
     elif args.command == "sync-cards":
-        print("Card sync not yet implemented (sub-project 2)")
+        import asyncio
+        from config import settings
+        from src.db.database import SessionLocal
+        from src.collector.hearthstone_json import HearthstoneJsonClient
+        from src.collector.blizzard_api import BlizzardApiClient
+        from src.collector.sync import sync_cards_to_db
+        from src.collector.image_cache import ImageCacheManager
+
+        async def run_sync():
+            print("Fetching cards from HearthstoneJSON...")
+            hs_client = HearthstoneJsonClient()
+            hs_cards = await hs_client.fetch_cards()
+            print(f"  Got {len(hs_cards)} collectible cards")
+
+            blizzard_cards = []
+            if settings.BLIZZARD_CLIENT_ID:
+                print("Fetching cards from Blizzard API...")
+                bz_client = BlizzardApiClient()
+                blizzard_cards = await bz_client.fetch_cards()
+                print(f"  Got {len(blizzard_cards)} cards")
+            else:
+                print("Blizzard API credentials not set, skipping")
+
+            print("Syncing to database...")
+            db = SessionLocal()
+            try:
+                stats = sync_cards_to_db(db, hs_cards, blizzard_cards)
+                print(f"  Inserted: {stats['inserted']}, Updated: {stats['updated']}")
+
+                print("Caching card images...")
+                cache = ImageCacheManager()
+                card_ids = [c["card_id"] for c in hs_cards]
+                downloaded = await cache.bulk_download(card_ids)
+                print(f"  Cached {len(downloaded)} images")
+            finally:
+                db.close()
+
+        asyncio.run(run_sync())
     elif args.command == "simulate":
         print("Simulation not yet implemented (sub-project 3)")
     elif args.command == "update-tierlist":
