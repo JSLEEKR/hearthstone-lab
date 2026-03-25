@@ -31,9 +31,7 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
     }
     for kr_name, en_name in keyword_map.items():
         if kr_name in text and ('부여' in text or '얻습니다' in text):
-            effects.append(SpellEffect("grant_keyword", target="friendly_minion"))
-            # Store keyword name in target field
-            effects[-1].target = en_name
+            effects.append(SpellEffect("grant_keyword", target=en_name))
             return effects
 
     # Cost reduction: "비용이 (N) 감소"
@@ -90,6 +88,13 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         effects.append(SpellEffect("aoe_damage", 999, target="all_minions"))
         return effects
 
+    # Add to hand: "가져옵니다" or "손으로"
+    if '가져옵니다' in text or ('손으로' in text and ('추가' in text or '가져' in text)):
+        m = re.search(r'(\d+)장', text)
+        count = int(m.group(1)) if m else 1
+        effects.append(SpellEffect("random_generate", count, target="hand"))
+        return effects
+
     # Hero power change: "영웅 능력" + "교체"
     if '영웅 능력' in text and '교체' in text:
         effects.append(SpellEffect("draw", 1))  # simplified
@@ -137,14 +142,26 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         effects.append(SpellEffect("buff", int(m.group(1)), 0, target="friendly_minion"))
         return effects
 
+    # AOE damage to all enemies (including hero): "모든 적에게 피해를 N"
+    m = re.search(r'모든\s*적에게\s*피해를\s*(\d+)', text)
+    if m and '하수인' not in text:
+        effects.append(SpellEffect("aoe_damage", int(m.group(1)), target="all_enemy_minions"))
+        return effects
+
+    # AOE damage to ALL characters: "모든 캐릭터에게 피해를 N"
+    m = re.search(r'모든\s*캐릭터에게\s*피해를\s*(\d+)', text)
+    if m:
+        effects.append(SpellEffect("aoe_damage", int(m.group(1)), target="all_minions"))
+        return effects
+
     # AOE damage to ALL minions: "모든 하수인에게 피해를 N 줍니다"
-    m = re.search(r'모든\s*하수인에게\s*피해를\s*(\d+)\s*줍니다', text)
+    m = re.search(r'모든\s*하수인에게\s*피해를\s*(\d+)', text)
     if m:
         effects.append(SpellEffect("aoe_damage", int(m.group(1)), target="all_minions"))
         return effects
 
     # AOE damage to enemy minions: "모든 적 하수인에게 피해를 N 줍니다"
-    m = re.search(r'모든\s*적\s*하수인에게\s*피해를\s*(\d+)\s*줍니다', text)
+    m = re.search(r'모든\s*적\s*하수인에게\s*피해를\s*(\d+)', text)
     if m:
         effects.append(SpellEffect("aoe_damage", int(m.group(1)), target="all_enemy_minions"))
         return effects
@@ -161,14 +178,31 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         effects.append(SpellEffect("damage", int(m.group(1)), target="enemy_minion"))
         return effects
 
-    # Generic damage (single target): "피해를 N 줍니다"
-    m = re.search(r'피해를\s*(\d+)\s*줍니다', text)
-    if m and '모든' not in text:
-        effects.append(SpellEffect("damage", int(m.group(1)), target="auto"))
+    # Random split damage: "N의 피해를 무작위로 나누어 입힙니다"
+    m = re.search(r'(\d+)의?\s*피해를\s*무작위로\s*나누어', text)
+    if m:
+        target = "all_enemy_minions" if '적' in text else "all_minions"
+        effects.append(SpellEffect("aoe_damage", int(m.group(1)), target=target))
         return effects
 
-    # Heal: "체력을 N 회복합니다"
-    m = re.search(r'체력을\s*(\d+)\s*회복', text)
+    # Random multi-hit: "피해를 N씩 주는 화살 N개" or "피해를 N씩 줍니다"
+    m = re.search(r'피해를\s*(\d+)씩', text)
+    if m:
+        effects.append(SpellEffect("aoe_damage", int(m.group(1)), target="all_minions"))
+        return effects
+
+    # Generic damage (single target): "피해를 N 줍니다" or "피해를 N 주고"
+    m = re.search(r'피해를\s*(\d+)\s*(?:줍니다|주고|줌)', text)
+    if m and '모든' not in text:
+        effects.append(SpellEffect("damage", int(m.group(1)), target="auto"))
+        # Check for secondary damage after "주고": "주고 다른 모든 적에게 피해를 N"
+        m2 = re.search(r'주고.*모든.*적.*피해를\s*(\d+)', text)
+        if m2:
+            effects.append(SpellEffect("aoe_damage", int(m2.group(1)), target="all_enemy_minions"))
+        return effects
+
+    # Heal: "체력을 N 회복" or "생명력을 N 회복" or "회복시킵니다"
+    m = re.search(r'(?:체력|생명력)을?\s*(\d+)\s*회복', text)
     if m:
         effects.append(SpellEffect("heal", int(m.group(1)), target="auto"))
         return effects
@@ -179,8 +213,8 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         effects.append(SpellEffect("draw", int(m.group(1))))
         return effects
 
-    # Draw 1: "카드를 뽑습니다"
-    if '카드를 뽑습니다' in text or '카드 한 장' in text:
+    # Draw 1: "카드를 뽑습니다" or "카드 한 장" or just "뽑습니다"
+    if '카드를 뽑습니다' in text or '카드 한 장' in text or ('뽑습니다' in text and '카드' not in text):
         effects.append(SpellEffect("draw", 1))
         return effects
 
@@ -190,20 +224,23 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         effects.append(SpellEffect("buff", int(m.group(1)), int(m.group(2)), target="friendly_minion"))
         return effects
 
-    # Armor: "방어도를 N 얻습니다"
-    m = re.search(r'방어도를?\s*(\d+)\s*얻', text)
+    # Armor: "방어도를 N 얻습니다" or "방어도를 +N 얻습니다"
+    m = re.search(r'방어도를?\s*\+?(\d+)\s*얻', text)
     if m:
         effects.append(SpellEffect("armor", int(m.group(1)), target="self_hero"))
         return effects
 
-    # Destroy: "하수인 하나를 파괴합니다" or "파괴합니다"
-    if '파괴합니다' in text and '하수인' in text:
+    # Destroy: "하수인 하나를 파괴합니다" or "처치합니다"
+    if ('파괴합니다' in text or '처치합니다' in text) and '하수인' in text:
         effects.append(SpellEffect("destroy", target="enemy_minion"))
         return effects
 
-    # Freeze all: "모든 적 하수인을 빙결시킵니다"
-    if '빙결' in text and '모든' in text:
-        effects.append(SpellEffect("freeze_all", target="all_enemy_minions"))
+    # Freeze: "빙결" — freeze targets
+    if '빙결' in text:
+        if '모든' in text:
+            effects.append(SpellEffect("freeze_all", target="all_enemy_minions"))
+        else:
+            effects.append(SpellEffect("freeze_all", target="enemy_minion"))
         return effects
 
     # Silence: "하수인 하나를 침묵시킵니다" or "침묵"
@@ -215,6 +252,80 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
     m = re.search(r'(\d+)/(\d+)\s*.*소환', text)
     if m:
         effects.append(SpellEffect("summon", int(m.group(1)), int(m.group(2))))
+        return effects
+
+    # Generic summon without stats: "소환합니다"
+    if '소환' in text:
+        effects.append(SpellEffect("random_summon", 0, target="friendly_board"))
+        return effects
+
+    # Return to hand: "돌려보냅니다" or "되돌립니다"
+    if '돌려' in text or '되돌' in text:
+        effects.append(SpellEffect("damage", 0, target="enemy_minion"))  # bounce = pseudo-remove
+        return effects
+
+    # Mana crystal: "마나 수정" — gain/lose mana
+    if '마나 수정' in text:
+        m = re.search(r'(\d+)', text)
+        val = int(m.group(1)) if m else 1
+        if '얻' in text or '회복' in text:
+            effects.append(SpellEffect("armor", val, target="self_hero"))  # proxy as resource gain
+        return effects
+
+    # Heal with "회복시킵니다" variant: "생명력을 N 회복시킵니다" or "N씩 회복"
+    m = re.search(r'(\d+)\s*(?:씩\s*)?회복', text)
+    if m and ('생명력' in text or '영웅' in text or '체력' in text):
+        effects.append(SpellEffect("heal", int(m.group(1)), target="auto"))
+        return effects
+
+    # Health buff: "생명력을 +N 부여" or "생명력 +N"
+    m = re.search(r'생명력을?\s*\+(\d+)', text)
+    if m:
+        effects.append(SpellEffect("buff", 0, int(m.group(1)), target="friendly_minion"))
+        return effects
+
+    # Set stats: "공격력과 생명력을 N으로" or "공격력과 생명력을 바꿉니다"
+    if '공격력과 생명력을 바꿉니다' in text or '공격력과 생명력을 바꿔' in text:
+        effects.append(SpellEffect("transform", target="all_minions"))
+        return effects
+
+    m = re.search(r'공격력과\s*생명력을?\s*(\d+)', text)
+    if m:
+        val = int(m.group(1))
+        effects.append(SpellEffect("buff", val, val, target="all_minions"))
+        return effects
+
+    # Silence: "침묵" without "하수인"
+    if '침묵' in text:
+        effects.append(SpellEffect("silence", target="enemy_minion"))
+        return effects
+
+    # "비용이 (N)씩 감소" — cost reduction per something
+    m = re.search(r'비용이?\s*\(?(\d+)\)?\s*(?:씩\s*)?감소', text)
+    if m:
+        effects.append(SpellEffect("cost_reduction", int(m.group(1)), target="hand"))
+        return effects
+
+    # "비용은 (N)이 됩니다" — set cost
+    m = re.search(r'비용(?:은|이)\s*\(?(\d+)\)?\s*(?:이\s*)?됩니다', text)
+    if m:
+        effects.append(SpellEffect("set_cost", int(m.group(1)), target="hand"))
+        return effects
+
+    # "공격력을 N으로" — set attack
+    m = re.search(r'공격력을?\s*(\d+)\s*(?:으|로)', text)
+    if m:
+        effects.append(SpellEffect("buff", int(m.group(1)), 0, target="enemy_minion"))
+        return effects
+
+    # "과부하" — overload (already handled as keyword, but parse solo text)
+    m = re.search(r'과부하[:\s]*\(?(\d+)\)?', text)
+    if m:
+        return effects  # overload is handled by engine, no spell effect needed
+
+    # "아군 하수인" or "내 하수인" + buff without +N/+N pattern
+    if ('아군' in text or '내 ' in text) and '하수인' in text and '얻습니다' in text:
+        effects.append(SpellEffect("buff", 1, 1, target="friendly_minion"))
         return effects
 
     return effects
