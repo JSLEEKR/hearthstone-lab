@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from src.simulator.ai import BaseAI
 from src.simulator.engine import GameEngine
 from src.simulator.game_state import GameState, PlayerState, HeroState, WeaponState
-from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard
+from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard, ForgeCard
 
 logger = logging.getLogger(__name__)
 
@@ -132,5 +132,26 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict)
             random.shuffle(player.deck)
             player.draw_card()
             player.mana -= 1
+    elif isinstance(action, ForgeCard):
+        player = state.current_player
+        if action.hand_idx < len(player.hand) and player.mana >= 2:
+            card_id = player.hand[action.hand_idx]
+            card_data = card_db.get(card_id, {})
+            # Forge: upgrade the card in hand — create forged version with +2/+2 or cost -1
+            forged_id = card_id + "_forged"
+            if forged_id not in card_db:
+                forged_data = dict(card_data)
+                forged_data["card_id"] = forged_id
+                forged_data["mechanics"] = [m for m in forged_data.get("mechanics", []) if m != "FORGE"]
+                if forged_data.get("card_type") == "MINION":
+                    forged_data["attack"] = forged_data.get("attack", 0) + 2
+                    forged_data["health"] = forged_data.get("health", 0) + 2
+                else:
+                    forged_data["mana_cost"] = max(0, forged_data.get("mana_cost", 0) - 1)
+                forged_data["name"] = forged_data.get("name", "") + " (Forged)"
+                card_db[forged_id] = forged_data
+                engine.card_db[forged_id] = forged_data
+            player.hand[action.hand_idx] = forged_id
+            player.mana -= 2
     elif isinstance(action, HeroPower):
         engine.use_hero_power(state)

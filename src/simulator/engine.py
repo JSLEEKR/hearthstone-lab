@@ -219,10 +219,10 @@ class GameEngine:
             hero = state.current_player.hero
             hero.health = min(hero.health + damage_to_defender, hero.max_health)
 
-        # FREEZE
-        if "FREEZE" in attacker.mechanics:
+        # FREEZE: only freeze if actual damage was dealt (divine shield blocks it)
+        if "FREEZE" in attacker.mechanics and damage_to_defender > 0:
             defender.frozen = True
-        if "FREEZE" in defender.mechanics:
+        if "FREEZE" in defender.mechanics and damage_to_attacker > 0:
             attacker.frozen = True
 
         # FRENZY: trigger once on first damage
@@ -669,9 +669,9 @@ class GameEngine:
         # Calculate spell power bonus from friendly minions
         spell_power = self._get_spell_power(state)
 
-        # SHATTER bonus: extra damage for spells
+        # SHATTER bonus: double spell damage
         if "SHATTER" in mechanics:
-            spell_power += spell_power + 2
+            spell_power = spell_power * 2 + 2
 
         for eff in effects:
             if eff.effect_type == "damage":
@@ -840,8 +840,19 @@ class GameEngine:
         self.remove_dead_minions(state)
 
     def _get_spell_power(self, state: GameState) -> int:
-        """Calculate total spell damage bonus from friendly minions with SPELLPOWER."""
-        return sum(1 for m in state.current_player.board if "SPELLPOWER" in m.mechanics)
+        """Calculate total spell damage bonus from friendly minions with SPELLPOWER.
+        Checks card text for 'spell power +N' pattern, defaults to +1."""
+        total = 0
+        for m in state.current_player.board:
+            if "SPELLPOWER" in m.mechanics:
+                text = self.card_db.get(m.card_id, {}).get("text", "") or ""
+                import re
+                sp_match = re.search(r'주문\s*공격력\s*\+(\d+)', text)
+                if sp_match:
+                    total += int(sp_match.group(1))
+                else:
+                    total += 1
+        return total
 
     def _check_quest_progress(self, player: PlayerState):
         """Increment quest progress and check for completion."""
@@ -1016,7 +1027,8 @@ class GameEngine:
         player.deck.insert(0, best)
 
     def _discover(self, state: GameState, player: PlayerState, filter_fn=None):
-        """DISCOVER: present 3 random cards from card_db, AI picks lowest cost one, add to hand."""
+        """DISCOVER: present 3 random cards from card_db, AI picks lowest cost one, add to hand.
+        Class cards have 4x weighting per official Hearthstone rules."""
         candidates = list(self.card_db.values())
         if filter_fn:
             candidates = [c for c in candidates if filter_fn(c)]
@@ -1027,7 +1039,28 @@ class GameEngine:
                        and not c.get("card_id", "").endswith("_twin")]
         if not candidates:
             return
-        choices = random.sample(candidates, min(3, len(candidates)))
+        # 4x weighting for player's class cards
+        hero_class = player.hero.hero_class
+        weighted = []
+        for c in candidates:
+            card_class = c.get("hero_class", "NEUTRAL")
+            if card_class == hero_class:
+                weighted.extend([c] * 4)  # 4x weight
+            else:
+                weighted.append(c)
+        # Pick 3 unique cards
+        choices = []
+        seen_ids = set()
+        random.shuffle(weighted)
+        for c in weighted:
+            cid = c.get("card_id", "")
+            if cid not in seen_ids:
+                choices.append(c)
+                seen_ids.add(cid)
+            if len(choices) >= 3:
+                break
+        if not choices:
+            return
         # AI picks the lowest cost one (simple heuristic)
         pick = min(choices, key=lambda c: c.get("mana_cost", 99))
         card_id = pick.get("card_id", "")
@@ -1054,7 +1087,7 @@ class GameEngine:
             ))
 
     def get_legal_actions(self, state: GameState) -> list:
-        from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard
+        from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard, ForgeCard
         actions = []
         player = state.current_player
         opponent = state.opponent
@@ -1066,6 +1099,9 @@ class GameEngine:
             # TRADEABLE: can trade for 1 mana if player has a deck
             if "TRADEABLE" in card_data.get("mechanics", []) and player.mana >= 1 and player.deck:
                 actions.append(TradeCard(card_id=card_id, hand_idx=i))
+            # FORGE: spend 2 mana to upgrade card in hand
+            if "FORGE" in card_data.get("mechanics", []) and player.mana >= 2:
+                actions.append(ForgeCard(card_id=card_id, hand_idx=i))
             if card_data.get("mana_cost", 99) <= player.mana:
                 if card_data.get("card_type", "") == "MINION" and player.board_full:
                     continue

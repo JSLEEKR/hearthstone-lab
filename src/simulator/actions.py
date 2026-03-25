@@ -9,6 +9,7 @@ class ActionType(str, Enum):
     HERO_POWER = "HERO_POWER"
     END_TURN = "END_TURN"
     TRADE_CARD = "TRADE_CARD"
+    FORGE_CARD = "FORGE_CARD"
 
 
 @dataclass
@@ -45,3 +46,10 @@ class TradeCard:
     card_id: str
     hand_idx: int
     action_type: ActionType = field(default=ActionType.TRADE_CARD, init=False)
+
+
+@dataclass
+class ForgeCard:
+    card_id: str
+    hand_idx: int
+    action_type: ActionType = field(default=ActionType.FORGE_CARD, init=False)
