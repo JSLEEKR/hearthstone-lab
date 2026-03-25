@@ -137,6 +137,43 @@ body {
 }
 .format-toggle a.active { background: var(--accent); color: white; }
 
+/* Cards Page Layout */
+.cards-layout {
+    display: grid; grid-template-columns: 220px 1fr; gap: 1.5rem;
+    align-items: start;
+}
+.cards-sidebar {
+    position: sticky; top: 70px; max-height: calc(100vh - 80px);
+    overflow-y: auto; background: var(--bg-secondary); border-radius: 8px;
+    padding: 0.75rem; scrollbar-width: thin; scrollbar-color: var(--bg-card) transparent;
+}
+.cards-sidebar::-webkit-scrollbar { width: 4px; }
+.cards-sidebar::-webkit-scrollbar-thumb { background: var(--bg-card); border-radius: 2px; }
+.cards-main { min-width: 0; }
+.sidebar-section { margin-bottom: 1rem; }
+.sidebar-section h3 {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-secondary); margin-bottom: 0.4rem; padding: 0 0.25rem;
+}
+.sidebar-input {
+    width: 100%; padding: 0.35rem 0.5rem; border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.1); background: var(--bg-primary);
+    color: var(--text-primary); font-size: 0.8rem;
+}
+.sidebar-tabs { display: flex; flex-wrap: wrap; gap: 3px; }
+.sidebar-tabs-col { flex-direction: column; }
+.sidebar-tab {
+    padding: 0.25rem 0.5rem; border: none; border-radius: 4px; cursor: pointer;
+    font-size: 0.75rem; background: transparent; color: var(--text-secondary);
+    text-align: left; transition: all 0.15s; white-space: nowrap;
+}
+.sidebar-tab:hover { background: var(--bg-card); color: var(--text-primary); }
+.sidebar-tab.active { background: var(--accent); color: white; }
+.sidebar-tab .set-count {
+    float: right; font-size: 0.65rem; opacity: 0.7; margin-left: 0.5rem;
+}
+.mana-tab { min-width: 28px; text-align: center; }
+
 /* Card Tile - enhanced */
 .card-tile-info { padding: 0.25rem 0; }
 .card-tile-stats {
@@ -215,6 +252,8 @@ body {
 /* Responsive */
 @media (max-width: 768px) {
     .builder-layout { grid-template-columns: 1fr; }
+    .cards-layout { grid-template-columns: 1fr; }
+    .cards-sidebar { position: static; max-height: none; }
     .card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
     .card-modal-body { flex-direction: column; }
     .card-modal-image { width: 100%; max-width: 250px; margin: 0 auto; }

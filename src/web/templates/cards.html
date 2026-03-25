@@ -3,65 +3,104 @@
 {% block content %}
 <h1>카드 데이터베이스</h1>
 
-<div class="filter-bar">
-    <input type="text" placeholder="카드 이름 검색..." name="q"
-           hx-get="/api/cards" hx-trigger="keyup changed delay:300ms"
-           hx-target="#card-results" hx-include="[name]">
-    <select name="hero_class"
-            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
-        <option value="">전체 직업</option>
-        <option value="MAGE">마법사</option>
-        <option value="WARRIOR">전사</option>
-        <option value="PALADIN">성기사</option>
-        <option value="HUNTER">사냥꾼</option>
-        <option value="ROGUE">도적</option>
-        <option value="PRIEST">사제</option>
-        <option value="SHAMAN">주술사</option>
-        <option value="WARLOCK">흑마법사</option>
-        <option value="DRUID">드루이드</option>
-        <option value="DEMONHUNTER">악마사냥꾼</option>
-        <option value="DEATHKNIGHT">죽음의 기사</option>
-        <option value="NEUTRAL">중립</option>
-    </select>
-    <select name="card_type"
-            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
-        <option value="">전체 유형</option>
-        <option value="MINION">하수인</option>
-        <option value="SPELL">주문</option>
-        <option value="WEAPON">무기</option>
-        <option value="HERO">영웅</option>
-        <option value="LOCATION">장소</option>
-    </select>
-    <select name="cost"
-            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
-        <option value="">전체 비용</option>
-        <option value="0">0 마나</option>
-        <option value="1">1 마나</option>
-        <option value="2">2 마나</option>
-        <option value="3">3 마나</option>
-        <option value="4">4 마나</option>
-        <option value="5">5 마나</option>
-        <option value="6">6 마나</option>
-        <option value="7">7+ 마나</option>
-    </select>
-    <select name="rarity"
-            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
-        <option value="">전체 레어도</option>
-        <option value="FREE">무료</option>
-        <option value="COMMON">일반</option>
-        <option value="RARE">희귀</option>
-        <option value="EPIC">영웅</option>
-        <option value="LEGENDARY">전설</option>
-    </select>
-    <select name="set_name" id="set-select"
-            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
-        <option value="">전체 확장팩</option>
-    </select>
-</div>
+<div class="cards-layout">
+    <!-- Left Sidebar: always visible -->
+    <aside class="cards-sidebar">
+        <!-- Format Tab -->
+        <div class="sidebar-section">
+            <h3>포맷</h3>
+            <div class="sidebar-tabs">
+                <button class="sidebar-tab active" data-filter="format_filter" data-value="" onclick="setFilter(this)">전체</button>
+                <button class="sidebar-tab" data-filter="format_filter" data-value="standard" onclick="setFilter(this)">스탠다드</button>
+                <button class="sidebar-tab" data-filter="format_filter" data-value="wild" onclick="setFilter(this)">와일드</button>
+            </div>
+        </div>
 
-<div id="card-results" class="card-grid"
-     hx-get="/api/cards" hx-trigger="load" hx-swap="innerHTML">
-    <p>카드를 불러오는 중...</p>
+        <!-- Search -->
+        <div class="sidebar-section">
+            <h3>검색</h3>
+            <input type="text" class="sidebar-input" placeholder="카드 이름..." name="q"
+                   oninput="debouncedSearch()">
+        </div>
+
+        <!-- Card Type Tabs -->
+        <div class="sidebar-section">
+            <h3>유형</h3>
+            <div class="sidebar-tabs sidebar-tabs-col">
+                <button class="sidebar-tab active" data-filter="card_type" data-value="" onclick="setFilter(this)">전체</button>
+                <button class="sidebar-tab" data-filter="card_type" data-value="MINION" onclick="setFilter(this)">하수인</button>
+                <button class="sidebar-tab" data-filter="card_type" data-value="SPELL" onclick="setFilter(this)">주문</button>
+                <button class="sidebar-tab" data-filter="card_type" data-value="WEAPON" onclick="setFilter(this)">무기</button>
+                <button class="sidebar-tab" data-filter="card_type" data-value="LOCATION" onclick="setFilter(this)">장소</button>
+                <button class="sidebar-tab" data-filter="card_type" data-value="HERO" onclick="setFilter(this)">영웅</button>
+            </div>
+        </div>
+
+        <!-- Class Tabs -->
+        <div class="sidebar-section">
+            <h3>직업</h3>
+            <div class="sidebar-tabs sidebar-tabs-col">
+                <button class="sidebar-tab active" data-filter="hero_class" data-value="" onclick="setFilter(this)">전체</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="MAGE" onclick="setFilter(this)">마법사</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="WARRIOR" onclick="setFilter(this)">전사</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="PALADIN" onclick="setFilter(this)">성기사</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="HUNTER" onclick="setFilter(this)">사냥꾼</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="ROGUE" onclick="setFilter(this)">도적</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="PRIEST" onclick="setFilter(this)">사제</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="SHAMAN" onclick="setFilter(this)">주술사</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="WARLOCK" onclick="setFilter(this)">흑마법사</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="DRUID" onclick="setFilter(this)">드루이드</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="DEMONHUNTER" onclick="setFilter(this)">악마사냥꾼</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="DEATHKNIGHT" onclick="setFilter(this)">죽음의 기사</button>
+                <button class="sidebar-tab" data-filter="hero_class" data-value="NEUTRAL" onclick="setFilter(this)">중립</button>
+            </div>
+        </div>
+
+        <!-- Mana Cost Tabs -->
+        <div class="sidebar-section">
+            <h3>마나 비용</h3>
+            <div class="sidebar-tabs">
+                <button class="sidebar-tab active mana-tab" data-filter="cost" data-value="" onclick="setFilter(this)">전체</button>
+                <button class="sidebar-tab mana-tab" data-filter="cost" data-value="0" onclick="setFilter(this)">0</button>
+                <button class="sidebar-tab mana-tab" data-filter="cost" data-value="1" onclick="setFilter(this)">1</button>
+                <button class="sidebar-tab mana-tab" data-filter="cost" data-value="2" onclick="setFilter(this)">2</button>
+                <button class="sidebar-tab mana-tab" data-filter="cost" data-value="3" onclick="setFilter(this)">3</button>
+                <button class="sidebar-tab mana-tab" data-filter="cost" data-value="4" onclick="setFilter(this)">4</button>
+                <button class="sidebar-tab mana-tab" data-filter="cost" data-value="5" onclick="setFilter(this)">5</button>
+                <button class="sidebar-tab mana-tab" data-filter="cost" data-value="6" onclick="setFilter(this)">6</button>
+                <button class="sidebar-tab mana-tab" data-filter="cost" data-value="7" onclick="setFilter(this)">7+</button>
+            </div>
+        </div>
+
+        <!-- Rarity -->
+        <div class="sidebar-section">
+            <h3>레어도</h3>
+            <div class="sidebar-tabs sidebar-tabs-col">
+                <button class="sidebar-tab active" data-filter="rarity" data-value="" onclick="setFilter(this)">전체</button>
+                <button class="sidebar-tab" data-filter="rarity" data-value="FREE" onclick="setFilter(this)"><span style="color:#9d9d9d">&#9679;</span> 무료</button>
+                <button class="sidebar-tab" data-filter="rarity" data-value="COMMON" onclick="setFilter(this)"><span style="color:#888">&#9679;</span> 일반</button>
+                <button class="sidebar-tab" data-filter="rarity" data-value="RARE" onclick="setFilter(this)"><span style="color:#0070dd">&#9679;</span> 희귀</button>
+                <button class="sidebar-tab" data-filter="rarity" data-value="EPIC" onclick="setFilter(this)"><span style="color:#a335ee">&#9679;</span> 영웅</button>
+                <button class="sidebar-tab" data-filter="rarity" data-value="LEGENDARY" onclick="setFilter(this)"><span style="color:#ff8000">&#9679;</span> 전설</button>
+            </div>
+        </div>
+
+        <!-- Expansion -->
+        <div class="sidebar-section">
+            <h3>확장팩</h3>
+            <div class="sidebar-tabs sidebar-tabs-col" id="set-tabs">
+                <button class="sidebar-tab active" data-filter="set_name" data-value="" onclick="setFilter(this)">전체</button>
+                <!-- Populated by JS -->
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="cards-main">
+        <div id="card-results" class="card-grid">
+            <p>카드를 불러오는 중...</p>
+        </div>
+    </div>
 </div>
 
 <!-- Card Detail Modal -->
@@ -106,16 +145,78 @@
 </div>
 
 <script>
-// Load expansion sets into dropdown
-fetch('/api/cards/sets').then(r => r.json()).then(sets => {
-    const sel = document.getElementById('set-select');
-    sets.forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s.set_name;
-        opt.textContent = s.name_ko + ' (' + s.count + ')';
-        sel.appendChild(opt);
-    });
+// Current filter state
+const filters = { q:'', hero_class:'', card_type:'', cost:'', rarity:'', set_name:'', format_filter:'', page:1 };
+let searchTimeout = null;
+
+function setFilter(btn) {
+    const filterName = btn.dataset.filter;
+    const value = btn.dataset.value;
+    filters[filterName] = value;
+    filters.page = 1;
+    // Update active state for this filter group
+    btn.parentElement.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    // If format changed, reload set tabs too
+    if (filterName === 'format_filter') loadSets();
+    fetchCards();
+}
+
+function debouncedSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        filters.q = document.querySelector('input[name="q"]').value;
+        filters.page = 1;
+        fetchCards();
+    }, 300);
+}
+
+function fetchCards() {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([k,v]) => { if (v !== '' && v !== null) params.set(k, v); });
+    fetch('/api/cards?' + params, { headers: {'HX-Request': 'true'} })
+        .then(r => r.text())
+        .then(html => {
+            document.getElementById('card-results').innerHTML = html;
+            // Re-process htmx for pagination buttons
+            if (window.htmx) htmx.process(document.getElementById('card-results'));
+        });
+}
+
+// Override HTMX pagination to use our filter state
+document.addEventListener('htmx:configRequest', function(e) {
+    if (e.detail.path.startsWith('/api/cards')) {
+        // Merge our filters into the request
+        Object.entries(filters).forEach(([k,v]) => {
+            if (v !== '' && v !== null) e.detail.parameters[k] = v;
+        });
+        // Extract page from the URL if it's a pagination click
+        const url = new URL(e.detail.path, window.location.origin);
+        const page = url.searchParams.get('page');
+        if (page) {
+            filters.page = parseInt(page);
+            e.detail.parameters.page = page;
+        }
+    }
 });
+
+function loadSets() {
+    const fmt = filters.format_filter ? '?format_filter=' + filters.format_filter : '';
+    fetch('/api/cards/sets' + fmt).then(r => r.json()).then(sets => {
+        const container = document.getElementById('set-tabs');
+        // Keep "전체" button
+        container.innerHTML = '<button class="sidebar-tab active" data-filter="set_name" data-value="" onclick="setFilter(this)">전체</button>';
+        sets.forEach(s => {
+            const btn = document.createElement('button');
+            btn.className = 'sidebar-tab';
+            btn.dataset.filter = 'set_name';
+            btn.dataset.value = s.set_name;
+            btn.onclick = function() { setFilter(this); };
+            btn.innerHTML = s.name_ko + ' <span class="set-count">' + s.count + '</span>';
+            container.appendChild(btn);
+        });
+    });
+}
 
 const rarityColors = {
     'FREE': '#9d9d9d', 'COMMON': '#888', 'RARE': '#0070dd',
@@ -131,38 +232,24 @@ function showCardDetail(el) {
     document.getElementById('modal-type').textContent = el.dataset.type;
     document.getElementById('modal-class').textContent = el.dataset.class;
     document.getElementById('modal-set').textContent = el.dataset.set;
-
     const rarity = el.dataset.rarity;
     const rarityEl = document.getElementById('modal-rarity');
     rarityEl.textContent = rarity;
     rarityEl.style.color = rarityColors[rarity] || '#888';
-
     const attack = el.dataset.attack;
     const health = el.dataset.health;
-    const atkBadge = document.getElementById('modal-attack-badge');
-    const hpBadge = document.getElementById('modal-health-badge');
-    if (attack) {
-        document.getElementById('modal-attack').textContent = attack;
-        atkBadge.style.display = '';
-    } else { atkBadge.style.display = 'none'; }
-    if (health) {
-        document.getElementById('modal-health').textContent = health;
-        hpBadge.style.display = '';
-    } else { hpBadge.style.display = 'none'; }
-
-    const text = el.dataset.text || '효과 없음';
-    document.getElementById('modal-text').innerHTML = text.replace(/\n/g, '<br>');
-
+    document.getElementById('modal-attack-badge').style.display = attack ? '' : 'none';
+    document.getElementById('modal-health-badge').style.display = health ? '' : 'none';
+    if (attack) document.getElementById('modal-attack').textContent = attack;
+    if (health) document.getElementById('modal-health').textContent = health;
+    document.getElementById('modal-text').textContent = el.dataset.text || '효과 없음';
     const mechanics = el.dataset.mechanics;
     const mechSection = document.getElementById('modal-mechanics-section');
-    const mechContainer = document.getElementById('modal-mechanics');
     if (mechanics) {
-        mechContainer.innerHTML = mechanics.split(', ').map(m =>
-            '<span class="mechanic-tag">' + m + '</span>'
-        ).join('');
+        document.getElementById('modal-mechanics').innerHTML = mechanics.split(', ').map(m =>
+            '<span class="mechanic-tag">' + m + '</span>').join('');
         mechSection.style.display = '';
     } else { mechSection.style.display = 'none'; }
-
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';
 }
@@ -172,8 +259,10 @@ function closeCardDetail() {
     document.body.style.overflow = '';
 }
 
-document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeCardDetail();
-});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCardDetail(); });
+
+// Init
+loadSets();
+fetchCards();
 </script>
 {% endblock %}

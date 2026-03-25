@@ -20,6 +20,23 @@ CARD_TYPE_KO = {
     "HERO": "영웅", "LOCATION": "장소",
 }
 
+# Ordered newest to oldest (index = sort order, lower = newer)
+SET_ORDER = [
+    "RETURN_TO_UN_GORO", "GREAT_DARK_BEYOND", "SPACE", "TIME_TRAVEL",
+    "ISLAND_VACATION", "WHIZBANGS_WORKSHOP", "WILD_WEST",
+    "EMERALD_DREAM", "TITANS", "BATTLE_OF_THE_BANDS",
+    "THE_LOST_CITY", "RETURN_OF_THE_LICH_KING", "PATH_OF_ARTHAS",
+    "REVENDRETH", "THE_SUNKEN_CITY", "ALTERAC_VALLEY",
+    "STORMWIND", "THE_BARRENS", "DARKMOON_FAIRE", "SCHOLOMANCE",
+    "BLACK_TEMPLE", "DRAGONS", "ULDUM", "DALARAN",
+    "TROLL", "BOOMSDAY", "GILNEAS", "LOOTAPALOOZA",
+    "ICECROWN", "UNGORO", "GANGS", "KARA", "OG",
+    "TGT", "LOE", "BRM", "GVG", "NAXX",
+    "CORE", "EXPERT1", "LEGACY", "VANILLA",
+    "WONDERS", "CATACLYSM", "YEAR_OF_THE_DRAGON",
+    "DEMON_HUNTER_INITIATE", "EVENT",
+]
+
 SET_NAME_KO = {
     "CORE": "기본", "EXPERT1": "오리지널", "LEGACY": "레거시", "VANILLA": "클래식",
     "NAXX": "낙스라마스", "GVG": "고블린 대 노움", "BRM": "검은바위 산",
@@ -40,19 +57,37 @@ SET_NAME_KO = {
     "ISLAND_VACATION": "섬 휴가", "EMERALD_DREAM": "에메랄드 꿈",
     "SPACE": "스페이스", "TIME_TRAVEL": "시간 여행", "WONDERS": "경이",
     "GREAT_DARK_BEYOND": "거대한 어둠 너머", "RETURN_TO_UN_GORO": "운고로 귀환",
-    "CATACLYSM": "대격변",
+    "CATACLYSM": "대격변", "DEMON_HUNTER_INITIATE": "악마사냥꾼 입문",
+    "EVENT": "이벤트",
 }
+
+
+import re
+
+def _clean_card_text(text: str) -> str:
+    """Convert HS markup to readable text. Strip HTML tags and $ cost markers."""
+    if not text:
+        return ""
+    # $1 -> 1 (damage/heal numbers)
+    text = re.sub(r'\$(\d+)', r'\1', text)
+    # Strip HTML tags like <b>, </b>, <i>, </i>
+    text = re.sub(r'<[^>]+>', '', text)
+    # [x] formatting hint
+    text = text.replace('[x]', '')
+    return text.strip()
 
 
 def _query_cards(db: Session, q: str, hero_class: str, cost: int | None,
                  rarity: str, set_name: str, card_type: str,
-                 page: int, per_page: int):
+                 format_filter: str, page: int, per_page: int):
     query = db.query(Card).filter(
         Card.collectible == True,
         Card.set_name.notin_(EXCLUDED_SETS),
     )
     if not card_type:
         query = query.filter(Card.card_type != "HERO")
+    if format_filter == "standard":
+        query = query.filter(Card.is_standard == True)
     if q:
         query = query.filter(Card.name.ilike(f"%{q}%") | Card.name_ko.ilike(f"%{q}%"))
     if hero_class:
@@ -84,12 +119,13 @@ def _card_html(c: Card) -> str:
         stats = f'<div class="card-tile-stats"><span>&#9876; {c.attack or 0}</span><span>&#10084; {c.health or 0}</span></div>'
     elif c.card_type == "WEAPON":
         stats = f'<div class="card-tile-stats"><span>&#9876; {c.attack or 0}</span><span>&#128737; {c.durability or 0}</span></div>'
-    text_preview = html_mod.escape(c.text or "")[:60]
-    if len(c.text or "") > 60:
+    clean_text = _clean_card_text(c.text or "")
+    text_preview = html_mod.escape(clean_text)[:80]
+    if len(clean_text) > 80:
         text_preview += "..."
     name_ko = html_mod.escape(c.name_ko or c.name)
     name_en = html_mod.escape(c.name or "")
-    full_text = html_mod.escape(c.text or "효과 없음")
+    full_text = html_mod.escape(_clean_card_text(c.text or "") or "효과 없음")
     mechanics_str = html_mod.escape(", ".join(c.mechanics)) if c.mechanics else ""
 
     return f'''<div class="card-tile" onclick="showCardDetail(this)"
@@ -126,11 +162,11 @@ def search_cards(
     rarity: str = "",
     set_name: str = "",
     card_type: str = "",
-    group_by: str = "",
+    format_filter: str = "",
     page: int = 1,
     per_page: int = 24,
 ):
-    cards, total = _query_cards(db, q, hero_class, cost, rarity, set_name, card_type, page, per_page)
+    cards, total = _query_cards(db, q, hero_class, cost, rarity, set_name, card_type, format_filter, page, per_page)
 
     # Return HTML fragment for HTMX requests
     if request.headers.get("HX-Request"):
@@ -185,16 +221,24 @@ def get_card_detail(card_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/cards/sets")
-def get_card_sets(db: Session = Depends(get_db)):
+def get_card_sets(db: Session = Depends(get_db), format_filter: str = ""):
     from sqlalchemy import func
-    sets = (
+    query = (
         db.query(Card.set_name, func.count())
         .filter(Card.collectible == True, Card.set_name.notin_(EXCLUDED_SETS), Card.card_type != "HERO")
-        .group_by(Card.set_name)
-        .order_by(func.count().desc())
-        .all()
     )
-    return [{"set_name": s, "name_ko": SET_NAME_KO.get(s, s), "count": c} for s, c in sets]
+    if format_filter == "standard":
+        query = query.filter(Card.is_standard == True)
+    sets = query.group_by(Card.set_name).all()
+    set_counts = {s: c for s, c in sets}
+    # Sort by SET_ORDER (newest first), unknown sets at end
+    result = []
+    for s in SET_ORDER:
+        if s in set_counts:
+            result.append({"set_name": s, "name_ko": SET_NAME_KO.get(s, s), "count": set_counts.pop(s)})
+    for s, c in sorted(set_counts.items()):
+        result.append({"set_name": s, "name_ko": SET_NAME_KO.get(s, s), "count": c})
+    return result
 
 
 @router.post("/deck/create")
