@@ -3,11 +3,11 @@
 {% block content %}
 <h1>카드 데이터베이스</h1>
 
-<div class="filter-bar" x-data="{ q: '', hero_class: '', cost: '', rarity: '' }">
-    <input type="text" placeholder="카드 이름 검색..." x-model="q"
+<div class="filter-bar">
+    <input type="text" placeholder="카드 이름 검색..." name="q"
            hx-get="/api/cards" hx-trigger="keyup changed delay:300ms"
-           hx-target="#card-results" hx-include="[name]" name="q">
-    <select name="hero_class" x-model="hero_class"
+           hx-target="#card-results" hx-include="[name]">
+    <select name="hero_class"
             hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
         <option value="">전체 직업</option>
         <option value="MAGE">마법사</option>
@@ -23,13 +23,39 @@
         <option value="DEATHKNIGHT">죽음의 기사</option>
         <option value="NEUTRAL">중립</option>
     </select>
+    <select name="card_type"
+            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
+        <option value="">전체 유형</option>
+        <option value="MINION">하수인</option>
+        <option value="SPELL">주문</option>
+        <option value="WEAPON">무기</option>
+        <option value="HERO">영웅</option>
+        <option value="LOCATION">장소</option>
+    </select>
+    <select name="cost"
+            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
+        <option value="">전체 비용</option>
+        <option value="0">0 마나</option>
+        <option value="1">1 마나</option>
+        <option value="2">2 마나</option>
+        <option value="3">3 마나</option>
+        <option value="4">4 마나</option>
+        <option value="5">5 마나</option>
+        <option value="6">6 마나</option>
+        <option value="7">7+ 마나</option>
+    </select>
     <select name="rarity"
             hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
         <option value="">전체 레어도</option>
+        <option value="FREE">무료</option>
         <option value="COMMON">일반</option>
         <option value="RARE">희귀</option>
         <option value="EPIC">영웅</option>
         <option value="LEGENDARY">전설</option>
+    </select>
+    <select name="set_name" id="set-select"
+            hx-get="/api/cards" hx-trigger="change" hx-target="#card-results" hx-include="[name]">
+        <option value="">전체 확장팩</option>
     </select>
 </div>
 
@@ -37,4 +63,117 @@
      hx-get="/api/cards" hx-trigger="load" hx-swap="innerHTML">
     <p>카드를 불러오는 중...</p>
 </div>
+
+<!-- Card Detail Modal -->
+<div id="card-modal" class="card-modal-overlay" onclick="if(event.target===this)closeCardDetail()">
+    <div class="card-modal">
+        <button class="card-modal-close" onclick="closeCardDetail()">&times;</button>
+        <div class="card-modal-body">
+            <div class="card-modal-image">
+                <img id="modal-image" src="" alt="">
+            </div>
+            <div class="card-modal-info">
+                <h2 id="modal-name-ko"></h2>
+                <p id="modal-name-en" style="color:var(--text-secondary);font-size:0.9rem;"></p>
+                <div class="card-modal-stats">
+                    <div class="stat-badge stat-cost"><span id="modal-cost"></span> 마나</div>
+                    <div class="stat-badge" id="modal-attack-badge" style="display:none;">
+                        <span id="modal-attack"></span> 공격력
+                    </div>
+                    <div class="stat-badge" id="modal-health-badge" style="display:none;">
+                        <span id="modal-health"></span> 체력
+                    </div>
+                </div>
+                <div class="card-modal-meta">
+                    <span id="modal-type"></span> &middot;
+                    <span id="modal-rarity" style="font-weight:bold;"></span> &middot;
+                    <span id="modal-class"></span>
+                </div>
+                <div class="card-modal-meta" style="margin-top:0.25rem;">
+                    <span id="modal-set"></span>
+                </div>
+                <div class="card-modal-section">
+                    <h3>카드 효과</h3>
+                    <p id="modal-text" class="card-text-content"></p>
+                </div>
+                <div class="card-modal-section" id="modal-mechanics-section" style="display:none;">
+                    <h3>메커니즘</h3>
+                    <div id="modal-mechanics" class="mechanics-tags"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Load expansion sets into dropdown
+fetch('/api/cards/sets').then(r => r.json()).then(sets => {
+    const sel = document.getElementById('set-select');
+    sets.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.set_name;
+        opt.textContent = s.name_ko + ' (' + s.count + ')';
+        sel.appendChild(opt);
+    });
+});
+
+const rarityColors = {
+    'FREE': '#9d9d9d', 'COMMON': '#888', 'RARE': '#0070dd',
+    'EPIC': '#a335ee', 'LEGENDARY': '#ff8000',
+};
+
+function showCardDetail(el) {
+    const modal = document.getElementById('card-modal');
+    document.getElementById('modal-image').src = el.dataset.image;
+    document.getElementById('modal-name-ko').textContent = el.dataset.nameKo;
+    document.getElementById('modal-name-en').textContent = el.dataset.nameEn;
+    document.getElementById('modal-cost').textContent = el.dataset.cost;
+    document.getElementById('modal-type').textContent = el.dataset.type;
+    document.getElementById('modal-class').textContent = el.dataset.class;
+    document.getElementById('modal-set').textContent = el.dataset.set;
+
+    const rarity = el.dataset.rarity;
+    const rarityEl = document.getElementById('modal-rarity');
+    rarityEl.textContent = rarity;
+    rarityEl.style.color = rarityColors[rarity] || '#888';
+
+    const attack = el.dataset.attack;
+    const health = el.dataset.health;
+    const atkBadge = document.getElementById('modal-attack-badge');
+    const hpBadge = document.getElementById('modal-health-badge');
+    if (attack) {
+        document.getElementById('modal-attack').textContent = attack;
+        atkBadge.style.display = '';
+    } else { atkBadge.style.display = 'none'; }
+    if (health) {
+        document.getElementById('modal-health').textContent = health;
+        hpBadge.style.display = '';
+    } else { hpBadge.style.display = 'none'; }
+
+    const text = el.dataset.text || '효과 없음';
+    document.getElementById('modal-text').innerHTML = text.replace(/\n/g, '<br>');
+
+    const mechanics = el.dataset.mechanics;
+    const mechSection = document.getElementById('modal-mechanics-section');
+    const mechContainer = document.getElementById('modal-mechanics');
+    if (mechanics) {
+        mechContainer.innerHTML = mechanics.split(', ').map(m =>
+            '<span class="mechanic-tag">' + m + '</span>'
+        ).join('');
+        mechSection.style.display = '';
+    } else { mechSection.style.display = 'none'; }
+
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeCardDetail() {
+    document.getElementById('card-modal').classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeCardDetail();
+});
+</script>
 {% endblock %}

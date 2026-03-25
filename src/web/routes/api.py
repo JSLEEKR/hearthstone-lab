@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
@@ -7,32 +8,148 @@ from src.db.tables import Card, Deck, DeckCard
 router = APIRouter()
 
 
+EXCLUDED_SETS = {"HERO_SKINS", "PLACEHOLDER_202204"}
+
+RARITY_COLORS = {
+    "COMMON": "#888", "RARE": "#0070dd", "EPIC": "#a335ee",
+    "LEGENDARY": "#ff8000", "FREE": "#9d9d9d",
+}
+
+CARD_TYPE_KO = {
+    "MINION": "하수인", "SPELL": "주문", "WEAPON": "무기",
+    "HERO": "영웅", "LOCATION": "장소",
+}
+
+SET_NAME_KO = {
+    "CORE": "기본", "EXPERT1": "오리지널", "LEGACY": "레거시", "VANILLA": "클래식",
+    "NAXX": "낙스라마스", "GVG": "고블린 대 노움", "BRM": "검은바위 산",
+    "TGT": "대 마상시합", "LOE": "탐험가 연맹", "OG": "고대 신의 속삭임",
+    "KARA": "카라잔", "GANGS": "비열한 거리", "UNGORO": "운고로",
+    "ICECROWN": "얼어붙은 왕좌", "LOOTAPALOOZA": "코볼트와 지하 미궁",
+    "GILNEAS": "마녀숲", "BOOMSDAY": "박사 붐의 폭심만만 프로젝트",
+    "TROLL": "라스타칸의 대난투", "DALARAN": "달라란 대작전",
+    "ULDUM": "울둠의 구원자", "DRAGONS": "용의 강림",
+    "YEAR_OF_THE_DRAGON": "용의 해", "BLACK_TEMPLE": "황폐한 아웃랜드",
+    "SCHOLOMANCE": "스칼로맨스 아카데미", "DARKMOON_FAIRE": "다크문 축제",
+    "THE_BARRENS": "불모의 땅", "STORMWIND": "스톰윈드",
+    "ALTERAC_VALLEY": "알터랙 계곡", "THE_SUNKEN_CITY": "침몰의 도시",
+    "REVENDRETH": "레벤드레스", "RETURN_OF_THE_LICH_KING": "리치왕의 귀환",
+    "PATH_OF_ARTHAS": "아서스의 길", "THE_LOST_CITY": "잃어버린 도시",
+    "BATTLE_OF_THE_BANDS": "밴드의 전쟁", "TITANS": "타이탄",
+    "WILD_WEST": "황야의 땅", "WHIZBANGS_WORKSHOP": "위즈뱅의 작업실",
+    "ISLAND_VACATION": "섬 휴가", "EMERALD_DREAM": "에메랄드 꿈",
+    "SPACE": "스페이스", "TIME_TRAVEL": "시간 여행", "WONDERS": "경이",
+    "GREAT_DARK_BEYOND": "거대한 어둠 너머", "RETURN_TO_UN_GORO": "운고로 귀환",
+    "CATACLYSM": "대격변",
+}
+
+
+def _query_cards(db: Session, q: str, hero_class: str, cost: int | None,
+                 rarity: str, set_name: str, card_type: str,
+                 page: int, per_page: int):
+    query = db.query(Card).filter(
+        Card.collectible == True,
+        Card.set_name.notin_(EXCLUDED_SETS),
+    )
+    if not card_type:
+        query = query.filter(Card.card_type != "HERO")
+    if q:
+        query = query.filter(Card.name.ilike(f"%{q}%") | Card.name_ko.ilike(f"%{q}%"))
+    if hero_class:
+        query = query.filter(Card.hero_class.in_([hero_class, "NEUTRAL"]))
+    if cost is not None:
+        if cost >= 7:
+            query = query.filter(Card.mana_cost >= 7)
+        else:
+            query = query.filter(Card.mana_cost == cost)
+    if rarity:
+        query = query.filter(Card.rarity == rarity)
+    if set_name:
+        query = query.filter(Card.set_name == set_name)
+    if card_type:
+        query = query.filter(Card.card_type == card_type)
+
+    total = query.count()
+    cards = query.order_by(Card.mana_cost, Card.name).offset((page - 1) * per_page).limit(per_page).all()
+    return cards, total
+
+
+def _card_html(c: Card) -> str:
+    import html as html_mod
+    color = RARITY_COLORS.get(c.rarity, "#888")
+    type_ko = CARD_TYPE_KO.get(c.card_type, c.card_type)
+    set_ko = SET_NAME_KO.get(c.set_name, c.set_name)
+    stats = ""
+    if c.card_type == "MINION":
+        stats = f'<div class="card-tile-stats"><span>&#9876; {c.attack or 0}</span><span>&#10084; {c.health or 0}</span></div>'
+    elif c.card_type == "WEAPON":
+        stats = f'<div class="card-tile-stats"><span>&#9876; {c.attack or 0}</span><span>&#128737; {c.durability or 0}</span></div>'
+    text_preview = html_mod.escape(c.text or "")[:60]
+    if len(c.text or "") > 60:
+        text_preview += "..."
+    name_ko = html_mod.escape(c.name_ko or c.name)
+    name_en = html_mod.escape(c.name or "")
+    full_text = html_mod.escape(c.text or "효과 없음")
+    mechanics_str = html_mod.escape(", ".join(c.mechanics)) if c.mechanics else ""
+
+    return f'''<div class="card-tile" onclick="showCardDetail(this)"
+         data-name-ko="{name_ko}" data-name-en="{name_en}"
+         data-cost="{c.mana_cost}" data-attack="{c.attack or ''}"
+         data-health="{c.health or ''}" data-type="{type_ko}"
+         data-rarity="{c.rarity}" data-class="{c.hero_class}"
+         data-set="{set_ko}" data-text="{full_text}"
+         data-mechanics="{mechanics_str}" data-image="{c.image_url}"
+         data-card-id="{c.card_id}">
+        <img src="{c.image_url}" alt="{name_ko}" loading="lazy"
+             onerror="this.style.display='none'">
+        <div class="card-tile-info">
+            <div style="display:flex;align-items:center;gap:0.4rem;">
+                <span class="card-cost">{c.mana_cost}</span>
+                <span class="card-name">{name_ko}</span>
+            </div>
+            {stats}
+            <div class="card-tile-meta" style="color:{color};">
+                {type_ko} &middot; {set_ko}
+            </div>
+            <div class="card-tile-text">{text_preview}</div>
+        </div>
+    </div>'''
+
+
 @router.get("/cards")
 def search_cards(
+    request: Request,
     db: Session = Depends(get_db),
     q: str = "",
     hero_class: str = "",
     cost: int | None = None,
     rarity: str = "",
     set_name: str = "",
+    card_type: str = "",
+    group_by: str = "",
     page: int = 1,
-    per_page: int = 20,
+    per_page: int = 24,
 ):
-    query = db.query(Card).filter(Card.collectible == True)
-    if q:
-        query = query.filter(Card.name.ilike(f"%{q}%") | Card.name_ko.ilike(f"%{q}%"))
-    if hero_class:
-        query = query.filter(Card.hero_class.in_([hero_class, "NEUTRAL"]))
-    if cost is not None:
-        query = query.filter(Card.mana_cost == cost)
-    if rarity:
-        query = query.filter(Card.rarity == rarity)
-    if set_name:
-        query = query.filter(Card.set_name == set_name)
+    cards, total = _query_cards(db, q, hero_class, cost, rarity, set_name, card_type, page, per_page)
 
-    total = query.count()
-    cards = query.order_by(Card.mana_cost, Card.name).offset((page - 1) * per_page).limit(per_page).all()
+    # Return HTML fragment for HTMX requests
+    if request.headers.get("HX-Request"):
+        html_parts = [_card_html(c) for c in cards]
 
+        total_pages = (total + per_page - 1) // per_page
+        pagination = ""
+        if total_pages > 1:
+            pagination = '<div class="card-pagination">'
+            if page > 1:
+                pagination += f'<button class="btn btn-secondary" hx-get="/api/cards?page={page-1}" hx-target="#card-results" hx-include="[name]">&larr; 이전</button>'
+            pagination += f'<span class="pagination-info">{page} / {total_pages} ({total}장)</span>'
+            if page < total_pages:
+                pagination += f'<button class="btn btn-secondary" hx-get="/api/cards?page={page+1}" hx-target="#card-results" hx-include="[name]">다음 &rarr;</button>'
+            pagination += '</div>'
+
+        return HTMLResponse("".join(html_parts) + pagination)
+
+    # Return JSON for programmatic access
     return {
         "cards": [
             {
@@ -49,6 +166,35 @@ def search_cards(
         "page": page,
         "per_page": per_page,
     }
+
+
+@router.get("/card/{card_id}")
+def get_card_detail(card_id: str, db: Session = Depends(get_db)):
+    card = db.query(Card).filter_by(card_id=card_id).first()
+    if not card:
+        return {"error": "Card not found"}
+    return {
+        "card_id": card.card_id, "name": card.name, "name_ko": card.name_ko,
+        "mana_cost": card.mana_cost, "attack": card.attack, "health": card.health,
+        "durability": card.durability, "card_type": card.card_type,
+        "rarity": card.rarity, "hero_class": card.hero_class,
+        "set_name": card.set_name, "text": card.text,
+        "mechanics": card.mechanics, "image_url": card.image_url,
+        "is_standard": card.is_standard,
+    }
+
+
+@router.get("/cards/sets")
+def get_card_sets(db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    sets = (
+        db.query(Card.set_name, func.count())
+        .filter(Card.collectible == True, Card.set_name.notin_(EXCLUDED_SETS), Card.card_type != "HERO")
+        .group_by(Card.set_name)
+        .order_by(func.count().desc())
+        .all()
+    )
+    return [{"set_name": s, "name_ko": SET_NAME_KO.get(s, s), "count": c} for s, c in sets]
 
 
 @router.post("/deck/create")
