@@ -54,6 +54,12 @@
                 <button class="sidebar-tab" data-filter="hero_class" data-value="DEATHKNIGHT" onclick="setFilter(this)">죽음의 기사</button>
                 <button class="sidebar-tab" data-filter="hero_class" data-value="NEUTRAL" onclick="setFilter(this)">중립</button>
             </div>
+            <div class="sidebar-toggle" id="class-only-toggle" style="display:none;">
+                <label class="toggle-label">
+                    <input type="checkbox" id="class-only-cb" onchange="toggleClassOnly()">
+                    <span>직업 전용 (중립 제외)</span>
+                </label>
+            </div>
         </div>
 
         <!-- Mana Cost Tabs -->
@@ -146,7 +152,7 @@
 
 <script>
 // Current filter state
-const filters = { q:'', hero_class:'', card_type:'', cost:'', rarity:'', set_name:'', format_filter:'', page:1 };
+const filters = { q:'', hero_class:'', card_type:'', cost:'', rarity:'', set_name:'', format_filter:'', class_only:'', page:1 };
 let searchTimeout = null;
 
 function setFilter(btn) {
@@ -159,6 +165,23 @@ function setFilter(btn) {
     btn.classList.add('active');
     // If format changed, reload set tabs too
     if (filterName === 'format_filter') loadSets();
+    // Show/hide class-only toggle when a specific class is selected (not 전체/중립)
+    if (filterName === 'hero_class') {
+        const toggle = document.getElementById('class-only-toggle');
+        if (value && value !== 'NEUTRAL') {
+            toggle.style.display = '';
+        } else {
+            toggle.style.display = 'none';
+            filters.class_only = '';
+            document.getElementById('class-only-cb').checked = false;
+        }
+    }
+    fetchCards();
+}
+
+function toggleClassOnly() {
+    filters.class_only = document.getElementById('class-only-cb').checked ? '1' : '';
+    filters.page = 1;
     fetchCards();
 }
 

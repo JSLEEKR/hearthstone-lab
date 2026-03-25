@@ -96,7 +96,8 @@ def _clean_card_text(text: str) -> str:
 
 def _query_cards(db: Session, q: str, hero_class: str, cost: int | None,
                  rarity: str, set_name: str, card_type: str,
-                 format_filter: str, page: int, per_page: int):
+                 format_filter: str, class_only: str,
+                 page: int, per_page: int):
     query = db.query(Card).filter(
         Card.collectible == True,
         Card.set_name.notin_(EXCLUDED_SETS),
@@ -108,7 +109,10 @@ def _query_cards(db: Session, q: str, hero_class: str, cost: int | None,
     if q:
         query = query.filter(Card.name.ilike(f"%{q}%") | Card.name_ko.ilike(f"%{q}%"))
     if hero_class:
-        query = query.filter(Card.hero_class.in_([hero_class, "NEUTRAL"]))
+        if class_only == "1":
+            query = query.filter(Card.hero_class == hero_class)
+        else:
+            query = query.filter(Card.hero_class.in_([hero_class, "NEUTRAL"]))
     if cost is not None:
         if cost >= 7:
             query = query.filter(Card.mana_cost >= 7)
@@ -180,10 +184,11 @@ def search_cards(
     set_name: str = "",
     card_type: str = "",
     format_filter: str = "",
+    class_only: str = "",
     page: int = 1,
     per_page: int = 24,
 ):
-    cards, total = _query_cards(db, q, hero_class, cost, rarity, set_name, card_type, format_filter, page, per_page)
+    cards, total = _query_cards(db, q, hero_class, cost, rarity, set_name, card_type, format_filter, class_only, page, per_page)
 
     # Return HTML fragment for HTMX requests
     if request.headers.get("HX-Request"):
