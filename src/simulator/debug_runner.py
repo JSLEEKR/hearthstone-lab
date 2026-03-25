@@ -6,7 +6,7 @@ from src.simulator.game_state import GameState, PlayerState, HeroState
 from src.simulator.engine import GameEngine
 from src.simulator.event_log import GameEventLog
 from src.simulator.ai import SimpleAI
-from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn
+from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,17 @@ class DebugRunner:
                     self.engine.resolve_combat(attacker, defender, state=self.state)
                     self.log.append(self.turn_count, self.state.current_player_idx, "COMBAT",
                                     attacker.name, target=defender.name)
+
+        elif isinstance(action, TradeCard):
+            player = self.state.current_player
+            if action.hand_idx < len(player.hand) and player.mana >= 1 and player.deck:
+                card_id = player.hand.pop(action.hand_idx)
+                player.deck.append(card_id)
+                import random as _rand
+                _rand.shuffle(player.deck)
+                player.draw_card()
+                player.mana -= 1
+                self.log.append(self.turn_count, self.state.current_player_idx, "TRADE_CARD", card_id)
 
         elif isinstance(action, HeroPower):
             self.engine.use_hero_power(self.state)

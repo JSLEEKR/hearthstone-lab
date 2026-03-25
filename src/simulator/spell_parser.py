@@ -120,3 +120,15 @@ def parse_deathrattle_effects(text: str) -> list[SpellEffect]:
     if dr_match:
         return parse_spell_effects(dr_match.group(1))
     return []
+
+
+def parse_combo_effects(text: str) -> list[SpellEffect]:
+    """Parse combo portion of text (연계:)."""
+    if not text:
+        return []
+    # Clean HTML tags first
+    clean = re.sub(r'<[^>]+>', '', text)
+    combo_match = re.search(r'연계[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if combo_match:
+        return parse_spell_effects(combo_match.group(1))
+    return []

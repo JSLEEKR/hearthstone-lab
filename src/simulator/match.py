@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from src.simulator.ai import SimpleAI
 from src.simulator.engine import GameEngine
 from src.simulator.game_state import GameState, PlayerState, HeroState, WeaponState
-from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn
+from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard
 
 logger = logging.getLogger(__name__)
 
@@ -112,5 +112,13 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict)
                 engine.attack_hero(attacker, opponent.hero, state=state)
             elif action.target_idx < len(opponent.board):
                 engine.resolve_combat(attacker, opponent.board[action.target_idx], state=state)
+    elif isinstance(action, TradeCard):
+        player = state.current_player
+        if action.hand_idx < len(player.hand) and player.mana >= 1 and player.deck:
+            card_id = player.hand.pop(action.hand_idx)
+            player.deck.append(card_id)
+            random.shuffle(player.deck)
+            player.draw_card()
+            player.mana -= 1
     elif isinstance(action, HeroPower):
         engine.use_hero_power(state)

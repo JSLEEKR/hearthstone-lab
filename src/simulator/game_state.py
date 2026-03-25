@@ -142,6 +142,8 @@ class PlayerState:
     deck: list[str] = field(default_factory=list)
     secrets: list[str] = field(default_factory=list)
     fatigue_counter: int = 0
+    cards_played_this_turn: int = 0
+    echo_cards: list[str] = field(default_factory=list)
 
     def draw_card(self) -> str | None:
         if not self.deck:

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from src.simulator.game_state import GameState, MinionState, PlayerState, HeroState, WeaponState, BOARD_LIMIT
 
 if TYPE_CHECKING:
-    from src.simulator.actions import PlayCard, Attack
+    from src.simulator.actions import PlayCard, Attack, TradeCard
 
 logger = logging.getLogger(__name__)
 MAX_MANA = 10
@@ -33,6 +33,7 @@ class GameEngine:
         player.hero.hero_power_used = False
         player.hero.attack = 0
         player.hero.attacks_this_turn = 0
+        player.cards_played_this_turn = 0
         player.draw_card()
 
     def end_turn(self, state: GameState):
@@ -44,6 +45,10 @@ class GameEngine:
                 m.frozen = False
         player.hero.attack = 0
         player.hero.attacks_this_turn = 0
+        # Remove echo copies from hand at end of turn
+        if player.echo_cards:
+            player.hand = [c for c in player.hand if c not in player.echo_cards]
+            player.echo_cards.clear()
         state.switch_turn()
 
     def resolve_combat(self, attacker: MinionState, defender: MinionState,
@@ -198,34 +203,68 @@ class GameEngine:
         if "BATTLECRY" in mechanics:
             from src.simulator.spell_parser import parse_battlecry_effects
             effects = parse_battlecry_effects(card_data.get("text", ""))
-            for eff in effects:
-                if eff.effect_type == "damage":
-                    if eff.target == "enemy_hero":
-                        state.opponent.hero.take_damage(eff.value)
-                    elif state.opponent.board:
-                        t = max(state.opponent.board, key=lambda m: m.health)
-                        t.take_damage(eff.value)
-                elif eff.effect_type == "aoe_damage":
-                    if eff.target == "all_enemy_minions":
-                        for m in state.opponent.board:
-                            m.take_damage(eff.value)
-                    elif eff.target == "all_minions":
-                        for m in state.current_player.board + state.opponent.board:
-                            if m is not minion:
-                                m.take_damage(eff.value)
-                elif eff.effect_type == "draw":
-                    for _ in range(eff.value):
-                        player.draw_card()
-                elif eff.effect_type == "buff":
-                    minion.attack += eff.value
-                    minion.health += eff.value2
-                    minion.max_health += eff.value2
-                elif eff.effect_type == "heal":
-                    player.hero.health = min(player.hero.health + eff.value, player.hero.max_health)
-                elif eff.effect_type == "armor":
-                    player.hero.armor += eff.value
+            self._apply_battlecry_effects(state, player, minion, effects)
+
+        # COMBO: apply combo bonus if another card was played this turn
+        if "COMBO" in mechanics and player.cards_played_this_turn > 0:
+            from src.simulator.spell_parser import parse_combo_effects
+            combo_effects = parse_combo_effects(card_data.get("text", ""))
+            self._apply_battlecry_effects(state, player, minion, combo_effects)
+
+        # Increment cards played counter (after combo check so combo sees previous count)
+        player.cards_played_this_turn += 1
+
+        # ECHO: add a temporary copy to hand
+        if "ECHO" in mechanics:
+            card_id = card_data.get("card_id", "")
+            if card_id and len(player.hand) < 10:  # HAND_LIMIT
+                player.hand.append(card_id)
+                player.echo_cards.append(card_id)
+
+        # MINIATURIZE: summon a 1/1 copy
+        if "MINIATURIZE" in mechanics and not player.board_full:
+            mini = MinionState(
+                card_id=card_data.get("card_id", "") + "_mini",
+                name=card_data.get("name", "") + " (Mini)",
+                attack=1, health=1, max_health=1,
+                mana_cost=1,
+                taunt=minion.taunt,
+                mechanics=list(mechanics),
+                summoned_this_turn=True,
+            )
+            player.board.append(mini)
 
         return minion
+
+    def _apply_battlecry_effects(self, state: GameState, player: PlayerState,
+                                  minion: MinionState, effects: list):
+        """Apply a list of SpellEffect objects as battlecry/combo effects."""
+        for eff in effects:
+            if eff.effect_type == "damage":
+                if eff.target in ("enemy_hero", "auto"):
+                    state.opponent.hero.take_damage(eff.value)
+                elif state.opponent.board:
+                    t = max(state.opponent.board, key=lambda m: m.health)
+                    t.take_damage(eff.value)
+            elif eff.effect_type == "aoe_damage":
+                if eff.target == "all_enemy_minions":
+                    for m in state.opponent.board:
+                        m.take_damage(eff.value)
+                elif eff.target == "all_minions":
+                    for m in state.current_player.board + state.opponent.board:
+                        if m is not minion:
+                            m.take_damage(eff.value)
+            elif eff.effect_type == "draw":
+                for _ in range(eff.value):
+                    player.draw_card()
+            elif eff.effect_type == "buff":
+                minion.attack += eff.value
+                minion.health += eff.value2
+                minion.max_health += eff.value2
+            elif eff.effect_type == "heal":
+                player.hero.health = min(player.hero.health + eff.value, player.hero.max_health)
+            elif eff.effect_type == "armor":
+                player.hero.armor += eff.value
 
     def play_spell(self, state: GameState, card_data: dict, target=None):
         player = state.current_player
@@ -236,26 +275,39 @@ class GameEngine:
         if overload:
             player.overload += overload
 
+        mechanics = card_data.get("mechanics", [])
+
+        # SECRET: add to secrets list, don't resolve effects
+        if "SECRET" in mechanics:
+            player.secrets.append(card_data.get("card_id", ""))
+            player.cards_played_this_turn += 1
+            return
+
         from src.simulator.spell_parser import parse_spell_effects
         effects = parse_spell_effects(card_data.get("text", ""))
 
+        # Calculate spell power bonus from friendly minions
+        spell_power = self._get_spell_power(state)
+
         for eff in effects:
             if eff.effect_type == "damage":
+                damage = eff.value + spell_power
                 if eff.target == "enemy_hero":
-                    opponent.hero.take_damage(eff.value)
+                    opponent.hero.take_damage(damage)
                 elif eff.target == "enemy_minion" and opponent.board:
                     t = max(opponent.board, key=lambda m: m.health) if not target else target
-                    t.take_damage(eff.value)
+                    t.take_damage(damage)
                 elif eff.target == "auto":
-                    opponent.hero.take_damage(eff.value)
+                    opponent.hero.take_damage(damage)
 
             elif eff.effect_type == "aoe_damage":
+                damage = eff.value + spell_power
                 if eff.target == "all_minions":
                     for m in player.board + opponent.board:
-                        m.take_damage(eff.value)
+                        m.take_damage(damage)
                 elif eff.target == "all_enemy_minions":
                     for m in opponent.board:
-                        m.take_damage(eff.value)
+                        m.take_damage(damage)
 
             elif eff.effect_type == "heal":
                 if eff.target == "auto" or eff.target == "self_hero":
@@ -290,7 +342,12 @@ class GameEngine:
                     mana_cost=0,
                 ))
 
+        player.cards_played_this_turn += 1
         self.remove_dead_minions(state)
+
+    def _get_spell_power(self, state: GameState) -> int:
+        """Calculate total spell damage bonus from friendly minions with SPELLPOWER."""
+        return sum(1 for m in state.current_player.board if "SPELLPOWER" in m.mechanics)
 
     def apply_enrage(self, state: GameState):
         """Check all minions for enrage status and apply/remove bonus."""
@@ -356,14 +413,19 @@ class GameEngine:
                     attack=1, health=1, max_health=1, mana_cost=0))
 
     def get_legal_actions(self, state: GameState) -> list:
-        from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn
+        from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard
         actions = []
         player = state.current_player
         opponent = state.opponent
 
         for i, card_id in enumerate(player.hand):
             card_data = self.card_db.get(card_id)
-            if card_data and card_data.get("mana_cost", 99) <= player.mana:
+            if not card_data:
+                continue
+            # TRADEABLE: can trade for 1 mana if player has a deck
+            if "TRADEABLE" in card_data.get("mechanics", []) and player.mana >= 1 and player.deck:
+                actions.append(TradeCard(card_id=card_id, hand_idx=i))
+            if card_data.get("mana_cost", 99) <= player.mana:
                 if card_data.get("card_type", "") == "MINION" and player.board_full:
                     continue
                 actions.append(PlayCard(card_id=card_id, hand_idx=i))
