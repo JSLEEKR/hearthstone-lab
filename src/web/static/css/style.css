@@ -56,6 +56,21 @@ body {
 }
 .navbar nav a:hover { color: var(--gold-dim); }
 .navbar nav a.active { color: var(--gold); border-bottom-color: var(--gold); }
+.navbar nav .lang-switch {
+    margin-left: auto;
+    display: flex; gap: 0.25rem;
+    border: 1px solid var(--border-wood); border-radius: 4px; overflow: hidden;
+}
+.navbar nav .lang-switch a {
+    padding: 0.2rem 0.5rem; font-size: 0.75rem;
+    border-bottom: none; color: var(--text-secondary);
+    background: transparent; transition: all 0.2s;
+}
+.navbar nav .lang-switch a.active {
+    background: var(--border-gold); color: var(--gold);
+    border-bottom: none;
+}
+.navbar nav .lang-switch a:hover { color: var(--gold-dim); }
 
 /* === Container === */
 .container { max-width: 1400px; margin: 0 auto; padding: 1.25rem 1.5rem; }

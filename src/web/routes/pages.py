@@ -3,23 +3,30 @@ from sqlalchemy.orm import Session
 
 from src.db.database import get_db
 from src.web.templates_config import templates
+from src.web.i18n import get_all_translations, t, get_card_image_url
 
 router = APIRouter()
 
 
+def _ctx(request: Request, **kwargs) -> dict:
+    """Build template context with i18n translations."""
+    lang = getattr(request.state, "lang", "en")
+    return {"request": request, "lang": lang, "t": get_all_translations(lang), **kwargs}
+
+
 @router.get("/")
 def home_page(request: Request):
-    return templates.TemplateResponse(request, "builder.html")
+    return templates.TemplateResponse(request, "builder.html", _ctx(request))
 
 
 @router.get("/cards")
 def cards_page(request: Request):
-    return templates.TemplateResponse(request, "cards.html")
+    return templates.TemplateResponse(request, "cards.html", _ctx(request))
 
 
 @router.get("/builder")
 def builder_page(request: Request):
-    return templates.TemplateResponse(request, "builder.html")
+    return templates.TemplateResponse(request, "builder.html", _ctx(request))
 
 
 @router.get("/deck/{deck_id}")
@@ -30,6 +37,7 @@ def deck_detail_page(request: Request, deck_id: int, db: Session = Depends(get_d
         from fastapi.responses import HTMLResponse
         return HTMLResponse("<h1>Deck not found</h1>", status_code=404)
 
+    lang = getattr(request.state, "lang", "en")
     cards = (
         db.query(DeckCard, Card)
         .join(Card, DeckCard.card_id == Card.id)
@@ -37,30 +45,29 @@ def deck_detail_page(request: Request, deck_id: int, db: Session = Depends(get_d
         .order_by(Card.mana_cost, Card.name)
         .all()
     )
+    name_field = "name_ko" if lang == "ko" else "name"
     deck_cards = [
-        {"name": c.name, "name_ko": c.name_ko, "mana_cost": c.mana_cost,
+        {"name": getattr(c, name_field) or c.name, "mana_cost": c.mana_cost,
          "count": dc.count, "rarity": c.rarity, "card_id": c.card_id,
          "card_type": c.card_type}
         for dc, c in cards
     ]
 
-    # Mana curve data
     curve = {}
     for card in deck_cards:
         cost = min(card["mana_cost"], 7)
         curve[cost] = curve.get(cost, 0) + card["count"]
     mana_curve = [curve.get(i, 0) for i in range(8)]
 
-    return templates.TemplateResponse(request, "deck.html", {
-        "deck": deck, "cards": deck_cards,
-        "mana_curve": mana_curve,
-    })
+    return templates.TemplateResponse(request, "deck.html", _ctx(
+        request, deck=deck, cards=deck_cards, mana_curve=mana_curve,
+    ))
 
 
 @router.get("/simulation")
 def simulation_page(request: Request, db: Session = Depends(get_db)):
     from src.db.tables import Deck
     decks = db.query(Deck).order_by(Deck.created_at.desc()).limit(50).all()
-    return templates.TemplateResponse(request, "simulation.html", {
-        "decks": decks,
-    })
+    return templates.TemplateResponse(request, "simulation.html", _ctx(
+        request, decks=decks,
+    ))

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Hearthstone Lab{% endblock %}</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=7">
+    <link rel="stylesheet" href="/static/css/style.css?v=8">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -13,9 +13,13 @@
     <header class="navbar">
         <a href="/" class="logo">&#9876; Hearthstone Lab</a>
         <nav>
-            <a href="/cards">카드 DB</a>
-            <a href="/builder">덱빌더</a>
-            <a href="/simulation">시뮬레이션</a>
+            <a href="/cards">{{ t['nav.cards'] }}</a>
+            <a href="/builder">{{ t['nav.builder'] }}</a>
+            <a href="/simulation">{{ t['nav.simulation'] }}</a>
+            <span class="lang-switch">
+                <a href="?lang=en" class="{% if lang == 'en' %}active{% endif %}">EN</a>
+                <a href="?lang=ko" class="{% if lang == 'ko' %}active{% endif %}">KO</a>
+            </span>
         </nav>
     </header>
     <main class="container">

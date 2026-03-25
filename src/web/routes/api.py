@@ -4,8 +4,13 @@ from sqlalchemy.orm import Session
 
 from src.db.database import get_db
 from src.db.tables import Card, Deck, DeckCard
+from src.web.i18n import t, get_set_name, get_card_image_url, DEFAULT_LANG
 
 router = APIRouter()
+
+
+def _get_lang(request: Request) -> str:
+    return getattr(request.state, "lang", DEFAULT_LANG)
 
 
 EXCLUDED_SETS = {"HERO_SKINS"}
@@ -142,11 +147,16 @@ def _query_cards(db: Session, q: str, hero_class: str, cost: int | None,
     return cards, total
 
 
-def _card_html(c: Card) -> str:
+def _card_html(c: Card, lang: str = "en") -> str:
     import html as html_mod
     color = RARITY_COLORS.get(c.rarity, "#888")
-    type_ko = CARD_TYPE_KO.get(c.card_type, c.card_type)
-    set_ko = SET_NAME_KO.get(c.set_name, c.set_name)
+    type_name = t(f"type.{c.card_type}", lang)
+    set_name_display = get_set_name(c.set_name, lang)
+    display_name = html_mod.escape((c.name_ko if lang == "ko" else c.name) or c.name)
+    name_ko = html_mod.escape(c.name_ko or c.name)
+    name_en = html_mod.escape(c.name or "")
+    no_effect = t("cards.modal.no_effect", lang)
+    image_url = get_card_image_url(c.card_id, lang)
     stats = ""
     if c.card_type == "MINION":
         stats = f'<div class="card-tile-stats"><span>&#9876; {c.attack or 0}</span><span>&#10084; {c.health or 0}</span></div>'
@@ -156,29 +166,27 @@ def _card_html(c: Card) -> str:
     text_preview = html_mod.escape(clean_text)[:80]
     if len(clean_text) > 80:
         text_preview += "..."
-    name_ko = html_mod.escape(c.name_ko or c.name)
-    name_en = html_mod.escape(c.name or "")
-    full_text = html_mod.escape(_clean_card_text(c.text or "") or "효과 없음")
+    full_text = html_mod.escape(clean_text or no_effect)
     mechanics_str = html_mod.escape(", ".join(c.mechanics)) if c.mechanics else ""
 
     return f'''<div class="card-tile" onclick="showCardDetail(this)"
          data-name-ko="{name_ko}" data-name-en="{name_en}"
          data-cost="{c.mana_cost}" data-attack="{c.attack or ''}"
-         data-health="{c.health or ''}" data-type="{type_ko}"
+         data-health="{c.health or ''}" data-type="{type_name}"
          data-rarity="{c.rarity}" data-class="{c.hero_class}"
-         data-set="{set_ko}" data-text="{full_text}"
-         data-mechanics="{mechanics_str}" data-image="{c.image_url}"
+         data-set="{html_mod.escape(set_name_display)}" data-text="{full_text}"
+         data-mechanics="{mechanics_str}" data-image="{image_url}"
          data-card-id="{c.card_id}">
-        <img src="{c.image_url}" alt="{name_ko}" loading="lazy"
+        <img src="{image_url}" alt="{display_name}" loading="lazy"
              onerror="this.style.display='none'">
         <div class="card-tile-info">
             <div style="display:flex;align-items:center;gap:0.4rem;">
                 <span class="card-cost">{c.mana_cost}</span>
-                <span class="card-name">{name_ko}</span>
+                <span class="card-name">{display_name}</span>
             </div>
             {stats}
             <div class="card-tile-meta" style="color:{color};">
-                {type_ko} &middot; {set_ko}
+                {type_name} &middot; {set_name_display}
             </div>
             <div class="card-tile-text">{text_preview}</div>
         </div>
@@ -202,19 +210,24 @@ def search_cards(
 ):
     cards, total = _query_cards(db, q, hero_class, cost, rarity, set_name, card_type, format_filter, class_only, page, per_page)
 
+    lang = _get_lang(request)
+
     # Return HTML fragment for HTMX requests
     if request.headers.get("HX-Request"):
-        html_parts = [_card_html(c) for c in cards]
+        html_parts = [_card_html(c, lang) for c in cards]
 
         total_pages = (total + per_page - 1) // per_page
+        prev_label = t("common.previous", lang)
+        next_label = t("common.next", lang)
+        cards_unit = t("common.cards_unit", lang)
         pagination = ""
         if total_pages > 1:
             pagination = '<div class="card-pagination">'
             if page > 1:
-                pagination += f'<button class="btn btn-secondary" hx-get="/api/cards?page={page-1}" hx-target="#card-results" hx-include="[name]">&larr; 이전</button>'
-            pagination += f'<span class="pagination-info">{page} / {total_pages} ({total}장)</span>'
+                pagination += f'<button class="btn btn-secondary" hx-get="/api/cards?page={page-1}" hx-target="#card-results" hx-include="[name]">&larr; {prev_label}</button>'
+            pagination += f'<span class="pagination-info">{page} / {total_pages} ({total} {cards_unit})</span>'
             if page < total_pages:
-                pagination += f'<button class="btn btn-secondary" hx-get="/api/cards?page={page+1}" hx-target="#card-results" hx-include="[name]">다음 &rarr;</button>'
+                pagination += f'<button class="btn btn-secondary" hx-get="/api/cards?page={page+1}" hx-target="#card-results" hx-include="[name]">{next_label} &rarr;</button>'
             pagination += '</div>'
 
         return HTMLResponse("".join(html_parts) + pagination)
@@ -228,7 +241,8 @@ def search_cards(
                 "attack": c.attack, "health": c.health,
                 "card_type": c.card_type, "rarity": c.rarity,
                 "hero_class": c.hero_class, "set_name": c.set_name,
-                "text": c.text, "image_url": c.image_url,
+                "text": c.text,
+                "image_url": get_card_image_url(c.card_id, lang),
             }
             for c in cards
         ],
@@ -255,8 +269,9 @@ def get_card_detail(card_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/cards/sets")
-def get_card_sets(db: Session = Depends(get_db), format_filter: str = ""):
+def get_card_sets(request: Request, db: Session = Depends(get_db), format_filter: str = ""):
     from sqlalchemy import func
+    lang = _get_lang(request)
     query = (
         db.query(Card.set_name, func.count())
         .filter(Card.collectible == True, Card.set_name.notin_(EXCLUDED_SETS),
@@ -266,13 +281,12 @@ def get_card_sets(db: Session = Depends(get_db), format_filter: str = ""):
         query = query.filter(Card.is_standard == True)
     sets = query.group_by(Card.set_name).all()
     set_counts = {s: c for s, c in sets}
-    # Sort by SET_ORDER (newest first), unknown sets at end
     result = []
     for s in SET_ORDER:
         if s in set_counts:
-            result.append({"set_name": s, "name_ko": SET_NAME_KO.get(s, s), "count": set_counts.pop(s)})
+            result.append({"set_name": s, "display_name": get_set_name(s, lang), "count": set_counts.pop(s)})
     for s, c in sorted(set_counts.items()):
-        result.append({"set_name": s, "name_ko": SET_NAME_KO.get(s, s), "count": c})
+        result.append({"set_name": s, "display_name": get_set_name(s, lang), "count": c})
     return result
 
 

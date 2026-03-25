@@ -2,11 +2,11 @@
 {% block title %}{{ deck.name }} - Hearthstone Lab{% endblock %}
 {% block content %}
 
-{% set class_ko = {
-    'MAGE': '마법사', 'WARRIOR': '전사', 'PALADIN': '성기사',
-    'HUNTER': '사냥꾼', 'ROGUE': '도적', 'PRIEST': '사제',
-    'SHAMAN': '주술사', 'WARLOCK': '흑마법사', 'DRUID': '드루이드',
-    'DEMONHUNTER': '악마사냥꾼', 'DEATHKNIGHT': '죽음의 기사'
+{% set class_names = {
+    'MAGE': t['class.MAGE'], 'WARRIOR': t['class.WARRIOR'], 'PALADIN': t['class.PALADIN'],
+    'HUNTER': t['class.HUNTER'], 'ROGUE': t['class.ROGUE'], 'PRIEST': t['class.PRIEST'],
+    'SHAMAN': t['class.SHAMAN'], 'WARLOCK': t['class.WARLOCK'], 'DRUID': t['class.DRUID'],
+    'DEMONHUNTER': t['class.DEMONHUNTER'], 'DEATHKNIGHT': t['class.DEATHKNIGHT']
 } %}
 
 {% set class_colors = {
@@ -25,27 +25,26 @@
     <div>
         <h1 style="margin:0;">{{ deck.name }}</h1>
         <p style="color:var(--text-secondary);margin-top:0.25rem;">
-            {{ class_ko.get(deck.hero_class, deck.hero_class) }} &middot;
+            {{ class_names.get(deck.hero_class, deck.hero_class) }} &middot;
             {{ deck.format }} &middot;
-            {{ cards|length }}종 / {{ cards|sum(attribute='count') }}장
+            {{ cards|length }} / {{ cards|sum(attribute='count') }} {{ t['common.cards_unit'] }}
         </p>
     </div>
     <div style="display:flex;gap:0.5rem;">
-        <button class="btn btn-primary" onclick="exportDeck()">덱 코드 복사</button>
+        <button class="btn btn-primary" onclick="exportDeck()">{{ t['deck.copy_code'] }}</button>
         <span id="export-status" style="color:var(--gold);font-size:0.85rem;align-self:center;"></span>
     </div>
 </div>
 
 <div class="deck-detail-layout">
-    <!-- Left: Stats -->
     <div class="deck-stats-panel">
         <div class="deck-stat-card">
-            <h3>마나 커브</h3>
+            <h3>{{ t['deck.mana_curve'] }}</h3>
             <canvas id="mana-chart" height="180"></canvas>
         </div>
 
         <div class="deck-stat-card">
-            <h3>카드 구성</h3>
+            <h3>{{ t['deck.composition'] }}</h3>
             <div class="deck-composition">
                 {% set type_counts = {} %}
                 {% for card in cards %}
@@ -55,10 +54,13 @@
                         {% set _ = type_counts.update({card.card_type: card.count}) %}
                     {% endif %}
                 {% endfor %}
-                {% set type_ko = {'MINION': '하수인', 'SPELL': '주문', 'WEAPON': '무기', 'HERO': '영웅', 'LOCATION': '장소'} %}
-                {% for t, c in type_counts.items() %}
+                {% set type_labels = {
+                    'MINION': t['type.MINION'], 'SPELL': t['type.SPELL'],
+                    'WEAPON': t['type.WEAPON'], 'HERO': t['type.HERO'], 'LOCATION': t['type.LOCATION']
+                } %}
+                {% for tp, c in type_counts.items() %}
                 <div class="comp-row">
-                    <span class="comp-label">{{ type_ko.get(t, t) }}</span>
+                    <span class="comp-label">{{ type_labels.get(tp, tp) }}</span>
                     <div class="comp-bar-bg">
                         <div class="comp-bar" style="width: {{ (c / 30 * 100)|int }}%;"></div>
                     </div>
@@ -69,7 +71,7 @@
         </div>
 
         <div class="deck-stat-card">
-            <h3>레어도 분포</h3>
+            <h3>{{ t['deck.rarity_dist'] }}</h3>
             <div class="deck-composition">
                 {% set rarity_counts = {} %}
                 {% for card in cards %}
@@ -80,11 +82,14 @@
                     {% endif %}
                 {% endfor %}
                 {% set rarity_order = ['FREE', 'COMMON', 'RARE', 'EPIC', 'LEGENDARY'] %}
-                {% set rarity_ko = {'FREE': '무료', 'COMMON': '일반', 'RARE': '희귀', 'EPIC': '영웅', 'LEGENDARY': '전설'} %}
+                {% set rarity_labels = {
+                    'FREE': t['rarity.FREE'], 'COMMON': t['rarity.COMMON'],
+                    'RARE': t['rarity.RARE'], 'EPIC': t['rarity.EPIC'], 'LEGENDARY': t['rarity.LEGENDARY']
+                } %}
                 {% for r in rarity_order %}
                 {% if r in rarity_counts %}
                 <div class="comp-row">
-                    <span class="comp-label"><span style="color:{{ rarity_colors.get(r, '#888') }};">&#9679;</span> {{ rarity_ko.get(r, r) }}</span>
+                    <span class="comp-label"><span style="color:{{ rarity_colors.get(r, '#888') }};">&#9679;</span> {{ rarity_labels.get(r, r) }}</span>
                     <div class="comp-bar-bg">
                         <div class="comp-bar" style="width: {{ (rarity_counts[r] / 30 * 100)|int }}%; background: {{ rarity_colors.get(r, '#888') }};"></div>
                     </div>
@@ -96,13 +101,12 @@
         </div>
     </div>
 
-    <!-- Right: Card List -->
     <div class="deck-list-panel">
-        <h3>카드 목록</h3>
+        <h3>{{ t['deck.card_list'] }}</h3>
         {% for card in cards %}
         <div class="deck-card-row" style="border-left: 2px solid {{ rarity_colors.get(card.rarity, '#888') }};">
             <span class="cost">{{ card.mana_cost }}</span>
-            <span class="name">{{ card.name_ko or card.name }}</span>
+            <span class="name">{{ card.name }}</span>
             <span class="count">x{{ card.count }}</span>
         </div>
         {% endfor %}
@@ -116,7 +120,7 @@ new Chart(ctx, {
     data: {
         labels: ['0', '1', '2', '3', '4', '5', '6', '7+'],
         datasets: [{
-            label: '카드 수',
+            label: '{{ t["deck.card_count"] }}',
             data: {{ mana_curve | tojson }},
             backgroundColor: '{{ class_colors.get(deck.hero_class, "#0070dd") }}',
             borderRadius: 4,
@@ -137,7 +141,7 @@ async function exportDeck() {
     let data = await res.json();
     if (data.success) {
         navigator.clipboard.writeText(data.deckstring);
-        document.getElementById('export-status').textContent = '복사됨!';
+        document.getElementById('export-status').textContent = '{{ t["deck.copied"] }}';
         setTimeout(() => document.getElementById('export-status').textContent = '', 2000);
     }
 }

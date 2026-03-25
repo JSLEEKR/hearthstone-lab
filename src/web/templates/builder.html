@@ -1,58 +1,48 @@
 {% extends "base.html" %}
-{% block title %}덱빌더 - Hearthstone Lab{% endblock %}
+{% block title %}{{ t['builder.title'] }} - Hearthstone Lab{% endblock %}
 {% block content %}
-<h1>덱빌더</h1>
+<h1>{{ t['builder.title'] }}</h1>
 <div class="builder-3col" x-data="deckBuilder()">
-    <!-- Left Sidebar (filters) -->
     <aside class="cards-sidebar">
         <div class="sidebar-section">
-            <h3>포맷</h3>
+            <h3>{{ t['common.format'] }}</h3>
             <div class="sidebar-tabs">
-                <button class="sidebar-tab" :class="formatFilter==='' && 'active'" @click="formatFilter=''; searchCards()">전체</button>
-                <button class="sidebar-tab" :class="formatFilter==='standard' && 'active'" @click="formatFilter='standard'; searchCards()">스탠다드</button>
+                <button class="sidebar-tab" :class="formatFilter==='' && 'active'" @click="formatFilter=''; searchCards()">{{ t['common.all'] }}</button>
+                <button class="sidebar-tab" :class="formatFilter==='standard' && 'active'" @click="formatFilter='standard'; searchCards()">{{ t['common.standard'] }}</button>
             </div>
         </div>
 
         <div class="sidebar-section">
-            <h3>검색</h3>
-            <input type="text" class="sidebar-input" placeholder="카드 이름..."
+            <h3>{{ t['common.search'] }}</h3>
+            <input type="text" class="sidebar-input" placeholder="{{ t['common.card_name_placeholder'] }}"
                    x-model="searchQuery" @input.debounce.300ms="searchCards()">
         </div>
 
         <div class="sidebar-section">
-            <h3>직업</h3>
+            <h3>{{ t['common.class'] }}</h3>
             <div class="sidebar-tabs sidebar-tabs-col">
-                <button class="sidebar-tab" :class="heroClass==='' && 'active'" @click="heroClass=''; searchCards()">전체</button>
-                <button class="sidebar-tab" :class="heroClass==='MAGE' && 'active'" @click="heroClass='MAGE'; searchCards()">마법사</button>
-                <button class="sidebar-tab" :class="heroClass==='WARRIOR' && 'active'" @click="heroClass='WARRIOR'; searchCards()">전사</button>
-                <button class="sidebar-tab" :class="heroClass==='PALADIN' && 'active'" @click="heroClass='PALADIN'; searchCards()">성기사</button>
-                <button class="sidebar-tab" :class="heroClass==='HUNTER' && 'active'" @click="heroClass='HUNTER'; searchCards()">사냥꾼</button>
-                <button class="sidebar-tab" :class="heroClass==='ROGUE' && 'active'" @click="heroClass='ROGUE'; searchCards()">도적</button>
-                <button class="sidebar-tab" :class="heroClass==='PRIEST' && 'active'" @click="heroClass='PRIEST'; searchCards()">사제</button>
-                <button class="sidebar-tab" :class="heroClass==='SHAMAN' && 'active'" @click="heroClass='SHAMAN'; searchCards()">주술사</button>
-                <button class="sidebar-tab" :class="heroClass==='WARLOCK' && 'active'" @click="heroClass='WARLOCK'; searchCards()">흑마법사</button>
-                <button class="sidebar-tab" :class="heroClass==='DRUID' && 'active'" @click="heroClass='DRUID'; searchCards()">드루이드</button>
-                <button class="sidebar-tab" :class="heroClass==='DEMONHUNTER' && 'active'" @click="heroClass='DEMONHUNTER'; searchCards()">악마사냥꾼</button>
-                <button class="sidebar-tab" :class="heroClass==='DEATHKNIGHT' && 'active'" @click="heroClass='DEATHKNIGHT'; searchCards()">죽음의 기사</button>
-                <button class="sidebar-tab" :class="heroClass==='NEUTRAL' && 'active'" @click="heroClass='NEUTRAL'; searchCards()">중립</button>
+                <button class="sidebar-tab" :class="heroClass==='' && 'active'" @click="heroClass=''; searchCards()">{{ t['common.all'] }}</button>
+                {% for cls in ['MAGE','WARRIOR','PALADIN','HUNTER','ROGUE','PRIEST','SHAMAN','WARLOCK','DRUID','DEMONHUNTER','DEATHKNIGHT','NEUTRAL'] %}
+                <button class="sidebar-tab" :class="heroClass==='{{ cls }}' && 'active'" @click="heroClass='{{ cls }}'; searchCards()">{{ t['class.' + cls] }}</button>
+                {% endfor %}
             </div>
         </div>
 
         <div class="sidebar-section">
-            <h3>유형</h3>
+            <h3>{{ t['common.type'] }}</h3>
             <div class="sidebar-tabs sidebar-tabs-col">
-                <button class="sidebar-tab" :class="cardType==='' && 'active'" @click="cardType=''; searchCards()">전체</button>
-                <button class="sidebar-tab" :class="cardType==='MINION' && 'active'" @click="cardType='MINION'; searchCards()">하수인</button>
-                <button class="sidebar-tab" :class="cardType==='SPELL' && 'active'" @click="cardType='SPELL'; searchCards()">주문</button>
-                <button class="sidebar-tab" :class="cardType==='WEAPON' && 'active'" @click="cardType='WEAPON'; searchCards()">무기</button>
-                <button class="sidebar-tab" :class="cardType==='LOCATION' && 'active'" @click="cardType='LOCATION'; searchCards()">장소</button>
+                <button class="sidebar-tab" :class="cardType==='' && 'active'" @click="cardType=''; searchCards()">{{ t['common.all'] }}</button>
+                <button class="sidebar-tab" :class="cardType==='MINION' && 'active'" @click="cardType='MINION'; searchCards()">{{ t['type.MINION'] }}</button>
+                <button class="sidebar-tab" :class="cardType==='SPELL' && 'active'" @click="cardType='SPELL'; searchCards()">{{ t['type.SPELL'] }}</button>
+                <button class="sidebar-tab" :class="cardType==='WEAPON' && 'active'" @click="cardType='WEAPON'; searchCards()">{{ t['type.WEAPON'] }}</button>
+                <button class="sidebar-tab" :class="cardType==='LOCATION' && 'active'" @click="cardType='LOCATION'; searchCards()">{{ t['type.LOCATION'] }}</button>
             </div>
         </div>
 
         <div class="sidebar-section">
-            <h3>마나 비용</h3>
+            <h3>{{ t['common.mana_cost'] }}</h3>
             <div class="sidebar-tabs">
-                <button class="sidebar-tab mana-tab" :class="costFilter==='' && 'active'" @click="costFilter=''; searchCards()">전체</button>
+                <button class="sidebar-tab mana-tab" :class="costFilter==='' && 'active'" @click="costFilter=''; searchCards()">{{ t['common.all'] }}</button>
                 <template x-for="c in [0,1,2,3,4,5,6,7]" :key="c">
                     <button class="sidebar-tab mana-tab" :class="costFilter===String(c) && 'active'"
                             @click="costFilter=String(c); searchCards()" x-text="c < 7 ? c : '7+'"></button>
@@ -61,50 +51,48 @@
         </div>
 
         <div class="sidebar-section">
-            <h3>레어도</h3>
+            <h3>{{ t['common.rarity'] }}</h3>
             <div class="sidebar-tabs sidebar-tabs-col">
-                <button class="sidebar-tab" :class="rarityFilter==='' && 'active'" @click="rarityFilter=''; searchCards()">전체</button>
-                <button class="sidebar-tab" :class="rarityFilter==='COMMON' && 'active'" @click="rarityFilter='COMMON'; searchCards()"><span style="color:#888">&#9679;</span> 일반</button>
-                <button class="sidebar-tab" :class="rarityFilter==='RARE' && 'active'" @click="rarityFilter='RARE'; searchCards()"><span style="color:#0070dd">&#9679;</span> 희귀</button>
-                <button class="sidebar-tab" :class="rarityFilter==='EPIC' && 'active'" @click="rarityFilter='EPIC'; searchCards()"><span style="color:#a335ee">&#9679;</span> 영웅</button>
-                <button class="sidebar-tab" :class="rarityFilter==='LEGENDARY' && 'active'" @click="rarityFilter='LEGENDARY'; searchCards()"><span style="color:#ff8000">&#9679;</span> 전설</button>
+                <button class="sidebar-tab" :class="rarityFilter==='' && 'active'" @click="rarityFilter=''; searchCards()">{{ t['common.all'] }}</button>
+                <button class="sidebar-tab" :class="rarityFilter==='COMMON' && 'active'" @click="rarityFilter='COMMON'; searchCards()"><span style="color:#888">&#9679;</span> {{ t['rarity.COMMON'] }}</button>
+                <button class="sidebar-tab" :class="rarityFilter==='RARE' && 'active'" @click="rarityFilter='RARE'; searchCards()"><span style="color:#0070dd">&#9679;</span> {{ t['rarity.RARE'] }}</button>
+                <button class="sidebar-tab" :class="rarityFilter==='EPIC' && 'active'" @click="rarityFilter='EPIC'; searchCards()"><span style="color:#a335ee">&#9679;</span> {{ t['rarity.EPIC'] }}</button>
+                <button class="sidebar-tab" :class="rarityFilter==='LEGENDARY' && 'active'" @click="rarityFilter='LEGENDARY'; searchCards()"><span style="color:#ff8000">&#9679;</span> {{ t['rarity.LEGENDARY'] }}</button>
             </div>
         </div>
 
         <div class="sidebar-section" style="border-bottom:none;">
-            <button class="btn btn-primary" style="width:100%;" @click="aiRecommend()">AI 덱 추천</button>
+            <button class="btn btn-primary" style="width:100%;" @click="aiRecommend()">{{ t['builder.ai_recommend'] }}</button>
         </div>
     </aside>
 
-    <!-- Center: Card Grid -->
     <div class="builder-center">
         <div class="builder-card-grid">
             <template x-for="card in cards" :key="card.card_id">
                 <div class="builder-card-tile" @click="addCard(card)">
-                    <img :src="card.image_url" :alt="card.name_ko || card.name" loading="lazy"
+                    <img :src="card.image_url" :alt="cardName(card)" loading="lazy"
                          onerror="this.style.display='none'">
                     <div class="builder-tile-overlay">
                         <span class="card-cost" x-text="card.mana_cost"></span>
-                        <span class="builder-tile-name" x-text="card.name_ko || card.name"></span>
+                        <span class="builder-tile-name" x-text="cardName(card)"></span>
                     </div>
                     <div class="builder-tile-add">+</div>
                 </div>
             </template>
             <div x-show="cards.length === 0" style="grid-column:1/-1;padding:2rem;color:var(--text-secondary);text-align:center;">
-                <span x-show="!heroClass">직업을 선택하세요</span>
-                <span x-show="heroClass">카드를 찾을 수 없습니다</span>
+                <span x-show="!heroClass">{{ t['builder.select_class'] }}</span>
+                <span x-show="heroClass">{{ t['builder.no_cards'] }}</span>
             </div>
         </div>
         <div class="card-pagination" x-show="totalPages > 1">
             <button class="btn btn-secondary" @click="prevPage()" :disabled="page <= 1">&larr;</button>
-            <span class="pagination-info" x-text="page + ' / ' + totalPages + ' (' + totalResults + '장)'"></span>
+            <span class="pagination-info" x-text="page + ' / ' + totalPages + ' (' + totalResults + ' {{ t["common.cards_unit"] }})'"></span>
             <button class="btn btn-secondary" @click="nextPage()" :disabled="page >= totalPages">&rarr;</button>
         </div>
     </div>
 
-    <!-- Right: Deck Panel -->
     <div class="deck-list-panel">
-        <h3>덱 (<span x-text="totalCards"></span>/30)</h3>
+        <h3>{{ t['builder.deck'] }} (<span x-text="totalCards"></span>/30)</h3>
         <div class="mana-curve">
             <template x-for="(count, i) in manaCurve" :key="i">
                 <div style="flex:1;display:flex;flex-direction:column;align-items:center;">
@@ -117,23 +105,24 @@
             <template x-for="card in deckCards" :key="card.card_id">
                 <div class="deck-card-row">
                     <span class="cost" x-text="card.mana_cost"></span>
-                    <span class="name" x-text="card.name_ko || card.name"></span>
+                    <span class="name" x-text="cardName(card)"></span>
                     <span class="count" x-text="'x' + card.count"></span>
                     <button class="deck-remove-btn" @click="removeCard(card)">&times;</button>
                 </div>
             </template>
             <div x-show="deckCards.length === 0" style="padding:1rem;color:var(--text-secondary);text-align:center;font-size:0.85rem;">
-                카드를 클릭하여 덱에 추가하세요
+                {{ t['builder.click_to_add'] }}
             </div>
         </div>
         <div style="margin-top:0.75rem;border-top:1px solid var(--border-wood);padding-top:0.75rem;">
-            <input type="text" placeholder="덱 코드 붙여넣기..." x-model="importCode" class="sidebar-input">
-            <button class="btn btn-secondary" style="width:100%;margin-top:0.5rem;" @click="importDeck()">가져오기</button>
+            <input type="text" placeholder="{{ t['builder.paste_code'] }}" x-model="importCode" class="sidebar-input">
+            <button class="btn btn-secondary" style="width:100%;margin-top:0.5rem;" @click="importDeck()">{{ t['common.import'] }}</button>
         </div>
     </div>
 </div>
 
 <script>
+const LANG = '{{ lang }}';
 function deckBuilder() {
     return {
         heroClass: '', searchQuery: '', costFilter: '', formatFilter: 'standard',
@@ -141,6 +130,10 @@ function deckBuilder() {
         cards: [], deckCards: [],
         deckId: null, importCode: '',
         page: 1, totalPages: 0, totalResults: 0,
+
+        cardName(card) {
+            return LANG === 'ko' ? (card.name_ko || card.name) : (card.name || card.name_ko);
+        },
 
         get totalCards() { return this.deckCards.reduce((s, c) => s + c.count, 0); },
         get manaCurve() {
@@ -184,7 +177,7 @@ function deckBuilder() {
                 let ex = this.deckCards.find(c => c.card_id === card.card_id);
                 if (ex) ex.count++;
                 else this.deckCards.push({...card, count: 1});
-                this.deckCards.sort((a, b) => a.mana_cost - b.mana_cost || (a.name_ko||a.name).localeCompare(b.name_ko||b.name));
+                this.deckCards.sort((a, b) => a.mana_cost - b.mana_cost || this.cardName(a).localeCompare(this.cardName(b)));
             }
         },
         async removeCard(card) {
@@ -195,7 +188,7 @@ function deckBuilder() {
             }
         },
         async aiRecommend() {
-            if (!this.heroClass) { alert('직업을 먼저 선택하세요.'); return; }
+            if (!this.heroClass) { alert('{{ t["builder.select_class_first"] }}'); return; }
             let res = await fetch('/api/deck/ai-recommend?hero_class=' + this.heroClass + '&format=' + (this.formatFilter||'standard'), {method:'POST'});
             this.deckCards = ((await res.json()).cards || []).sort((a, b) => a.mana_cost - b.mana_cost);
         },
@@ -204,7 +197,7 @@ function deckBuilder() {
             let res = await fetch('/api/deck/import?deckstring=' + encodeURIComponent(this.importCode), {method:'POST'});
             let data = await res.json();
             if (data.success) window.location.href = '/deck/' + data.deck_id;
-            else alert(data.error || '가져오기 실패');
+            else alert(data.error || '{{ t["builder.import_failed"] }}');
         },
         init() { this.searchCards(); }
     }
