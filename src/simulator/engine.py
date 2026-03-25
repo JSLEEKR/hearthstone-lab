@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import random
+import re
 from typing import TYPE_CHECKING
 from src.simulator.game_state import GameState, MinionState, PlayerState, HeroState, WeaponState, BOARD_LIMIT
 
@@ -16,6 +17,46 @@ STARTING_HAND_SECOND = 4
 class GameEngine:
     def __init__(self, card_db: dict | None = None):
         self.card_db = card_db or {}
+
+    def _can_be_targeted(self, minion: MinionState) -> bool:
+        """Return False if the minion has ELUSIVE and cannot be targeted by spells/hero powers."""
+        return "ELUSIVE" not in minion.mechanics
+
+    def silence_minion(self, minion: MinionState):
+        """Remove all enchantments from a minion."""
+        minion.taunt = False
+        minion.divine_shield = False
+        minion.stealth = False
+        minion.windfury = False
+        minion.lifesteal = False
+        minion.poisonous = False
+        minion.reborn = False
+        minion.rush = False
+        minion.charge = False
+        minion.frozen = False
+        minion.enrage_bonus = 0
+        minion.aura_attack_bonus = 0
+        minion.mechanics = []
+
+    def apply_auras(self, state: GameState):
+        """Apply simple aura effects. Called after board changes."""
+        for player in [state.player1, state.player2]:
+            # Reset aura bonuses
+            for m in player.board:
+                m.attack -= m.aura_attack_bonus
+                m.aura_attack_bonus = 0
+
+            # Apply aura effects
+            for m in player.board:
+                if "AURA" in m.mechanics:
+                    text = self.card_db.get(m.card_id, {}).get("text", "")
+                    match = re.search(r'다른.*아군.*하수인.*\+(\d+)\s*공격력', text)
+                    if match:
+                        bonus = int(match.group(1))
+                        for other in player.board:
+                            if other is not m:
+                                other.attack += bonus
+                                other.aura_attack_bonus += bonus
 
     def start_game(self, state: GameState):
         random.shuffle(state.player1.deck)
@@ -50,6 +91,7 @@ class GameEngine:
             player.hand = [c for c in player.hand if c not in player.echo_cards]
             player.echo_cards.clear()
         state.switch_turn()
+        self.apply_auras(state)
 
     def resolve_combat(self, attacker: MinionState, defender: MinionState,
                        state: GameState | None = None):
@@ -92,6 +134,11 @@ class GameEngine:
             defender.frozen = True
         if "FREEZE" in defender.mechanics:
             attacker.frozen = True
+
+        # FRENZY: trigger once on first damage
+        if state is not None:
+            self._check_frenzy(attacker, state)
+            self._check_frenzy(defender, state)
 
         # ENRAGE
         if state is not None:
@@ -156,6 +203,8 @@ class GameEngine:
                             ))
 
         for player in (state.player1, state.player2):
+            dead_count = sum(1 for m in player.board if m.is_dead)
+            player.friendly_deaths_this_game += dead_count
             new_board: list[MinionState] = []
             for m in player.board:
                 if m.is_dead:
@@ -176,8 +225,10 @@ class GameEngine:
                 else:
                     new_board.append(m)
             player.board = new_board
+        self.apply_auras(state)
 
-    def play_minion(self, state: GameState, card_data: dict) -> MinionState | None:
+    def play_minion(self, state: GameState, card_data: dict,
+                    hand_position: int | None = None) -> MinionState | None:
         player = state.current_player
         if player.board_full:
             return None
@@ -221,6 +272,15 @@ class GameEngine:
                 player.hand.append(card_id)
                 player.echo_cards.append(card_id)
 
+        # OUTCAST: apply bonus if played from leftmost or rightmost hand position
+        if "OUTCAST" in mechanics and hand_position is not None:
+            # Card has already been removed from hand, so len(hand) is one less
+            was_outcast = (hand_position == 0 or hand_position == len(player.hand))
+            if was_outcast:
+                from src.simulator.spell_parser import parse_outcast_effects
+                outcast_effects = parse_outcast_effects(card_data.get("text", ""))
+                self._apply_battlecry_effects(state, player, minion, outcast_effects)
+
         # MINIATURIZE: summon a 1/1 copy
         if "MINIATURIZE" in mechanics and not player.board_full:
             mini = MinionState(
@@ -234,6 +294,11 @@ class GameEngine:
             )
             player.board.append(mini)
 
+        # SPELLBURST: activate on play so it triggers on next spell
+        if "SPELLBURST" in mechanics:
+            minion.spellburst_active = True
+
+        self.apply_auras(state)
         return minion
 
     def _apply_battlecry_effects(self, state: GameState, player: PlayerState,
@@ -335,6 +400,13 @@ class GameEngine:
                 for m in opponent.board:
                     m.frozen = True
 
+            elif eff.effect_type == "silence":
+                if target and isinstance(target, MinionState):
+                    self.silence_minion(target)
+                elif opponent.board:
+                    t = max(opponent.board, key=lambda m: m.health)
+                    self.silence_minion(t)
+
             elif eff.effect_type == "summon" and not player.board_full:
                 player.board.append(MinionState(
                     card_id="token", name="Token",
@@ -343,11 +415,39 @@ class GameEngine:
                 ))
 
         player.cards_played_this_turn += 1
+        # Trigger spellburst on friendly minions
+        self._check_spellburst(state)
         self.remove_dead_minions(state)
 
     def _get_spell_power(self, state: GameState) -> int:
         """Calculate total spell damage bonus from friendly minions with SPELLPOWER."""
         return sum(1 for m in state.current_player.board if "SPELLPOWER" in m.mechanics)
+
+    def _check_frenzy(self, minion: MinionState, state: GameState):
+        """Trigger frenzy effect if the minion was damaged for the first time."""
+        if "FRENZY" not in minion.mechanics:
+            return
+        if minion.frenzy_triggered or minion.is_dead:
+            return
+        if minion.health < minion.max_health:
+            minion.frenzy_triggered = True
+            from src.simulator.spell_parser import parse_frenzy_effects
+            effects = parse_frenzy_effects(self.card_db.get(minion.card_id, {}).get("text", ""))
+            # Find which player owns this minion
+            for player in [state.player1, state.player2]:
+                if minion in player.board:
+                    self._apply_battlecry_effects(state, player, minion, effects)
+                    break
+
+    def _check_spellburst(self, state: GameState):
+        """Trigger spellburst for all friendly minions with active spellburst."""
+        player = state.current_player
+        for m in player.board:
+            if "SPELLBURST" in m.mechanics and m.spellburst_active and not m.is_dead:
+                m.spellburst_active = False
+                from src.simulator.spell_parser import parse_spellburst_effects
+                effects = parse_spellburst_effects(self.card_db.get(m.card_id, {}).get("text", ""))
+                self._apply_battlecry_effects(state, player, m, effects)
 
     def apply_enrage(self, state: GameState):
         """Check all minions for enrage status and apply/remove bonus."""
@@ -372,14 +472,20 @@ class GameEngine:
 
         if hero_class == "MAGE":
             if target and isinstance(target, MinionState):
-                target.take_damage(1)
+                if self._can_be_targeted(target):
+                    target.take_damage(1)
+                else:
+                    opponent.hero.take_damage(1)
             else:
                 opponent.hero.take_damage(1)
         elif hero_class == "WARRIOR":
             player.hero.armor += 2
         elif hero_class == "PRIEST":
             if target and isinstance(target, MinionState):
-                target.health = min(target.health + 2, target.max_health)
+                if not self._can_be_targeted(target):
+                    player.hero.health = min(player.hero.health + 2, player.hero.max_health)
+                else:
+                    target.health = min(target.health + 2, target.max_health)
             else:
                 player.hero.health = min(player.hero.health + 2, player.hero.max_health)
         elif hero_class == "HUNTER":

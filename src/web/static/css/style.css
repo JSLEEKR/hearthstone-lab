@@ -12,11 +12,6 @@
     --accent-hover: #ffaa44;
     --gold: #ffd700;
     --gold-dim: #c8a84e;
-    --tier-s: #ff4444;
-    --tier-a: #ff8c00;
-    --tier-b: #4caf50;
-    --tier-c: #5898d4;
-    --tier-d: #7a7a7a;
     --mana-blue: #1e88e5;
     --rarity-common: #9d9d9d;
     --rarity-rare: #0070dd;
@@ -64,56 +59,6 @@ body {
 
 /* === Container === */
 .container { max-width: 1400px; margin: 0 auto; padding: 1.25rem 1.5rem; }
-
-/* === Tier List === */
-.tierlist-header {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 1.25rem;
-}
-.tierlist-header h1 { margin: 0; }
-.tier-section { margin-bottom: 1.5rem; }
-.tier-badge {
-    display: inline-flex; flex-direction: column; align-items: center;
-    padding: 0.4rem 0.75rem; border-radius: 4px; margin-bottom: 0.6rem;
-    border: 1px solid rgba(255,255,255,0.1);
-}
-.tier-letter { font-size: 1.3rem; font-weight: bold; line-height: 1; }
-.tier-label { font-size: 0.6rem; text-transform: uppercase; opacity: 0.8; }
-.tier-S { background: linear-gradient(135deg, #cc0000, #ff4444); }
-.tier-A { background: linear-gradient(135deg, #cc6600, #ff8c00); }
-.tier-B { background: linear-gradient(135deg, #2e7d32, #4caf50); }
-.tier-C { background: linear-gradient(135deg, #1565c0, #5898d4); }
-.tier-D { background: linear-gradient(135deg, #555, #7a7a7a); }
-
-.tier-decks { display: flex; flex-direction: column; gap: 0.35rem; }
-.tier-deck-card {
-    display: flex; align-items: center; gap: 0;
-    background: var(--bg-secondary); border: 1px solid var(--border-wood);
-    border-radius: 4px; overflow: hidden;
-    text-decoration: none; color: inherit; transition: all 0.2s;
-}
-.tier-deck-card:hover { border-color: var(--border-gold); box-shadow: 0 2px 8px rgba(139,105,20,0.2); }
-.tier-deck-class {
-    display: flex; align-items: center; justify-content: center;
-    width: 48px; min-height: 56px; flex-shrink: 0;
-}
-.tier-class-icon { font-size: 1.4rem; }
-.tier-deck-info { flex: 1; padding: 0.5rem 0.75rem; min-width: 0; }
-.tier-deck-name { font-weight: 600; font-size: 0.9rem; }
-.tier-deck-class-name { font-size: 0.75rem; color: var(--text-secondary); }
-.tier-deck-stats {
-    display: flex; gap: 0; margin-left: auto; flex-shrink: 0;
-}
-.tier-stat {
-    display: flex; flex-direction: column; align-items: center;
-    padding: 0.4rem 1rem; min-width: 70px;
-    border-left: 1px solid rgba(92,58,30,0.3);
-}
-.tier-stat-value { font-size: 0.9rem; font-weight: bold; }
-.tier-stat-label { font-size: 0.6rem; color: var(--text-secondary); text-transform: uppercase; }
-.stat-high { color: #4caf50; }
-.stat-mid { color: var(--gold); }
-.stat-low { color: #e57373; }
 
 /* === Cards Page Layout === */
 .cards-layout {

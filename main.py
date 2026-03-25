@@ -3,7 +3,7 @@ import sys
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Hearthstone Deck Maker")
+    parser = argparse.ArgumentParser(description="Hearthstone Lab")
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("serve", help="Start web dashboard")
@@ -15,8 +15,6 @@ def main():
     sim_parser = subparsers.add_parser("simulate", help="Run simulations")
     sim_parser.add_argument("--bulk", action="store_true",
                             help="Run bulk simulation for all meta decks")
-
-    subparsers.add_parser("update-tierlist", help="Recalculate tier list")
 
     subparsers.add_parser("scheduler", help="Start daily scheduler")
 
@@ -103,10 +101,6 @@ def main():
                                hero_a="MAGE", hero_b="WARRIOR",
                                card_db=card_db, max_turns=45)
             print(f"Winner: {result.winner or 'Draw'}, Turns: {result.turns}")
-    elif args.command == "update-tierlist":
-        from src.scheduler.jobs import job_update_tierlist
-        job_update_tierlist()
-        print("Tier list updated.")
     elif args.command == "scheduler":
         from src.scheduler.jobs import create_scheduler
         from config import settings

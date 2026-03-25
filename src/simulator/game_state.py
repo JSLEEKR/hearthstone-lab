@@ -27,6 +27,9 @@ class MinionState:
     attacks_this_turn: int = 0
     summoned_this_turn: bool = True
     enrage_bonus: int = 0
+    aura_attack_bonus: int = 0
+    frenzy_triggered: bool = False
+    spellburst_active: bool = False
     mechanics: list[str] = field(default_factory=list)
 
     def take_damage(self, amount: int) -> int:
@@ -143,6 +146,7 @@ class PlayerState:
     secrets: list[str] = field(default_factory=list)
     fatigue_counter: int = 0
     cards_played_this_turn: int = 0
+    friendly_deaths_this_game: int = 0
     echo_cards: list[str] = field(default_factory=list)
 
     def draw_card(self) -> str | None:

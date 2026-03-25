@@ -92,6 +92,11 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         effects.append(SpellEffect("freeze_all", target="all_enemy_minions"))
         return effects
 
+    # Silence: "하수인 하나를 침묵시킵니다" or "침묵"
+    if '침묵' in text and '하수인' in text:
+        effects.append(SpellEffect("silence", target="enemy_minion"))
+        return effects
+
     # Summon: "N/N 하수인을 소환합니다" or "소환합니다"
     m = re.search(r'(\d+)/(\d+)\s*.*소환', text)
     if m:
@@ -131,4 +136,37 @@ def parse_combo_effects(text: str) -> list[SpellEffect]:
     combo_match = re.search(r'연계[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
     if combo_match:
         return parse_spell_effects(combo_match.group(1))
+    return []
+
+
+def parse_frenzy_effects(text: str) -> list[SpellEffect]:
+    """Parse frenzy portion of text (광란:)."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'광란[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1))
+    return []
+
+
+def parse_spellburst_effects(text: str) -> list[SpellEffect]:
+    """Parse spellburst portion of text (주문폭발:)."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'주문폭발[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1))
+    return []
+
+
+def parse_outcast_effects(text: str) -> list[SpellEffect]:
+    """Parse outcast portion of text (추방자:)."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'추방자[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1))
     return []

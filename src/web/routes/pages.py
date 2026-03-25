@@ -8,39 +8,8 @@ router = APIRouter()
 
 
 @router.get("/")
-def tierlist_page(request: Request, format: str = "standard", db: Session = Depends(get_db)):
-    from src.tierlist.calculator import TierCalculator
-    from src.tierlist.ranker import TierRanker
-    from src.db.tables import Deck, HSReplayStats
-
-    calc = TierCalculator()
-    ranker = TierRanker()
-    deck_winrates = calc.get_deck_winrates(db, format_type=format)
-    ranked = ranker.rank_decks(deck_winrates)
-
-    # Enrich with HSReplay stats (games, playrate)
-    for entry in ranked:
-        deck = db.query(Deck).filter_by(id=entry["deck_id"]).first()
-        entry["archetype"] = deck.archetype if deck else ""
-        entry["source"] = deck.source if deck else ""
-        stats = (
-            db.query(HSReplayStats).filter_by(deck_id=entry["deck_id"])
-            .order_by(HSReplayStats.collected_at.desc()).first()
-        )
-        if stats:
-            entry["games_played"] = stats.games_played
-            entry["playrate"] = stats.playrate
-        else:
-            entry["games_played"] = 0
-            entry["playrate"] = 0
-
-    tiers = {"S": [], "A": [], "B": [], "C": [], "D": []}
-    for deck in ranked:
-        tiers[deck["tier"]].append(deck)
-
-    return templates.TemplateResponse(request, "tierlist.html", {
-        "tiers": tiers, "format": format,
-    })
+def home_page(request: Request):
+    return templates.TemplateResponse(request, "builder.html")
 
 
 @router.get("/cards")

@@ -15,10 +15,6 @@ class Settings(BaseSettings):
     SIM_MAX_TURNS: int = 45
     MCTS_ITERATIONS: int = 1000
     MCTS_ITERATIONS_BULK: int = 200
-    TIER_WEIGHT_SIM: float = 0.5
-    TIER_WEIGHT_HSREPLAY: float = 0.5
-    TIER_THRESHOLDS: dict = {"S": 55.0, "A": 52.0, "B": 49.0, "C": 46.0}
-    TIER_MIN_GAMES: int = 50
     SCHEDULER_CRON_HOUR: int = 3
     SCHEDULER_CRON_MINUTE: int = 0
     WEB_HOST: str = "127.0.0.1"

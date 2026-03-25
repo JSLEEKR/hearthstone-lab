@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, Column, DateTime, Float, ForeignKey,
+    Boolean, CheckConstraint, Column, DateTime, ForeignKey,
     Index, Integer, JSON, String, Text,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -92,36 +92,3 @@ class Simulation(Base):
     )
 
 
-class HSReplayStats(Base):
-    __tablename__ = "hsreplay_stats"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    deck_id = Column(Integer, ForeignKey("decks.id"), nullable=False)
-    winrate = Column(Float, nullable=False)
-    playrate = Column(Float, nullable=False)
-    games_played = Column(Integer, nullable=False)
-    collected_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-    deck = relationship("Deck")
-
-    __table_args__ = (
-        Index("ix_hsreplay_stats_deck_date", "deck_id", "collected_at"),
-    )
-
-
-class TierHistory(Base):
-    __tablename__ = "tier_history"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    deck_id = Column(Integer, ForeignKey("decks.id"), nullable=False)
-    tier = Column(String, nullable=False)
-    sim_winrate = Column(Float, nullable=True)
-    hsreplay_winrate = Column(Float, nullable=True)
-    combined_winrate = Column(Float, nullable=False)
-    recorded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-    deck = relationship("Deck")
-
-    __table_args__ = (
-        Index("ix_tier_history_deck_date", "deck_id", "recorded_at"),
-    )

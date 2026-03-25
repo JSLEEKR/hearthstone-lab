@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).parent
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Hearthstone Deck Maker")
+    app = FastAPI(title="Hearthstone Lab")
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 

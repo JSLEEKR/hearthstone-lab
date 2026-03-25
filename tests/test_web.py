@@ -46,11 +46,10 @@ def web_app():
 
 
 class TestPages:
-    def test_tierlist_page(self, web_app):
+    def test_home_page(self, web_app):
         client, _ = web_app
         response = client.get("/")
         assert response.status_code == 200
-        assert "티어리스트" in response.text
 
     def test_cards_page(self, web_app):
         client, _ = web_app
@@ -107,13 +106,6 @@ class TestAPI:
         # Remove card
         res = client.post(f"/api/deck/remove-card?deck_id={deck_id}&card_id=card_0")
         assert res.json()["success"] is True
-
-    def test_tierlist_api(self, web_app):
-        client, _ = web_app
-        response = client.get("/api/tierlist")
-        assert response.status_code == 200
-        data = response.json()
-        assert "tiers" in data
 
     def test_ai_recommend(self, web_app):
         client, _ = web_app

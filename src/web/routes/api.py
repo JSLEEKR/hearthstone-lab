@@ -453,17 +453,3 @@ def run_simulation(
     return results
 
 
-@router.get("/tierlist")
-def get_tierlist(format: str = "standard", db: Session = Depends(get_db)):
-    from src.tierlist.calculator import TierCalculator
-    from src.tierlist.ranker import TierRanker
-
-    calc = TierCalculator()
-    ranker = TierRanker()
-    deck_winrates = calc.get_deck_winrates(db, format_type=format)
-    ranked = ranker.rank_decks(deck_winrates)
-
-    tiers = {"S": [], "A": [], "B": [], "C": [], "D": []}
-    for deck in ranked:
-        tiers[deck["tier"]].append(deck)
-    return {"tiers": tiers, "format": format}

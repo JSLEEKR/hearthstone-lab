@@ -1,6 +1,6 @@
 import pytest
 import sqlalchemy
-from src.db.tables import Card, Deck, DeckCard, Simulation, HSReplayStats, TierHistory
+from src.db.tables import Card, Deck, DeckCard, Simulation
 
 
 class TestCardTable:
@@ -78,27 +78,3 @@ class TestSimulationTable:
         db_session.add(sim)
         db_session.commit()
         assert sim.winner_id is None
-
-
-class TestHSReplayStatsTable:
-    def test_create_stats(self, db_session):
-        deck = Deck(hero_class="MAGE", name="D1", format="standard", source="hsreplay")
-        db_session.add(deck)
-        db_session.commit()
-        stats = HSReplayStats(deck_id=deck.id, winrate=55.3, playrate=8.2, games_played=12000)
-        db_session.add(stats)
-        db_session.commit()
-        assert stats.winrate == 55.3
-
-
-class TestTierHistoryTable:
-    def test_create_tier_record(self, db_session):
-        deck = Deck(hero_class="MAGE", name="D1", format="standard", source="manual")
-        db_session.add(deck)
-        db_session.commit()
-        th = TierHistory(deck_id=deck.id, tier="S", sim_winrate=56.0,
-                         hsreplay_winrate=54.5, combined_winrate=55.25)
-        db_session.add(th)
-        db_session.commit()
-        assert th.tier == "S"
-        assert th.recorded_at is not None
