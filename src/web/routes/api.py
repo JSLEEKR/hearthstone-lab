@@ -20,20 +20,36 @@ CARD_TYPE_KO = {
     "HERO": "영웅", "LOCATION": "장소",
 }
 
-# Ordered newest to oldest (index = sort order, lower = newer)
+# Ordered newest to oldest by dbfId range (lower index = newer)
 SET_ORDER = [
-    "RETURN_TO_UN_GORO", "GREAT_DARK_BEYOND", "SPACE", "TIME_TRAVEL",
-    "ISLAND_VACATION", "WHIZBANGS_WORKSHOP", "WILD_WEST",
-    "EMERALD_DREAM", "TITANS", "BATTLE_OF_THE_BANDS",
-    "THE_LOST_CITY", "RETURN_OF_THE_LICH_KING", "PATH_OF_ARTHAS",
+    # 2025
+    "CATACLYSM", "TIME_TRAVEL", "THE_LOST_CITY", "EMERALD_DREAM",
+    # 2024
+    "SPACE", "ISLAND_VACATION", "WHIZBANGS_WORKSHOP", "WILD_WEST",
+    # 2023
+    "TITANS", "BATTLE_OF_THE_BANDS", "WONDERS",
+    # 2022
+    "RETURN_OF_THE_LICH_KING", "PATH_OF_ARTHAS",
     "REVENDRETH", "THE_SUNKEN_CITY", "ALTERAC_VALLEY",
-    "STORMWIND", "THE_BARRENS", "DARKMOON_FAIRE", "SCHOLOMANCE",
-    "BLACK_TEMPLE", "DRAGONS", "ULDUM", "DALARAN",
-    "TROLL", "BOOMSDAY", "GILNEAS", "LOOTAPALOOZA",
-    "ICECROWN", "UNGORO", "GANGS", "KARA", "OG",
-    "TGT", "LOE", "BRM", "GVG", "NAXX",
+    # 2021
+    "STORMWIND", "THE_BARRENS", "DARKMOON_FAIRE",
+    # 2020
+    "SCHOLOMANCE", "BLACK_TEMPLE", "DRAGONS",
+    # 2019
+    "ULDUM", "DALARAN", "YEAR_OF_THE_DRAGON",
+    # 2018
+    "TROLL", "BOOMSDAY", "GILNEAS",
+    # 2017
+    "LOOTAPALOOZA", "ICECROWN", "UNGORO",
+    # 2016
+    "GANGS", "KARA", "OG",
+    # 2015
+    "TGT", "LOE", "BRM",
+    # 2014
+    "GVG", "NAXX",
+    # Evergreen
     "CORE", "EXPERT1", "LEGACY", "VANILLA",
-    "WONDERS", "CATACLYSM", "YEAR_OF_THE_DRAGON",
+    # Other
     "DEMON_HUNTER_INITIATE", "EVENT",
 ]
 
@@ -55,9 +71,10 @@ SET_NAME_KO = {
     "BATTLE_OF_THE_BANDS": "밴드의 전쟁", "TITANS": "타이탄",
     "WILD_WEST": "황야의 땅", "WHIZBANGS_WORKSHOP": "위즈뱅의 작업실",
     "ISLAND_VACATION": "섬 휴가", "EMERALD_DREAM": "에메랄드 꿈",
-    "SPACE": "스페이스", "TIME_TRAVEL": "시간 여행", "WONDERS": "경이",
+    "SPACE": "거대한 어둠 너머", "TIME_TRAVEL": "시간 여행", "WONDERS": "경이",
     "GREAT_DARK_BEYOND": "거대한 어둠 너머", "RETURN_TO_UN_GORO": "운고로 귀환",
     "CATACLYSM": "대격변", "DEMON_HUNTER_INITIATE": "악마사냥꾼 입문",
+    "EMERALD_DREAM": "에메랄드 꿈속으로",
     "EVENT": "이벤트",
 }
 

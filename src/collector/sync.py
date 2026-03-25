@@ -6,16 +6,27 @@ from src.db.tables import Card
 
 logger = logging.getLogger(__name__)
 
-# Sets that are currently in Standard rotation (updated yearly around April)
+# Sets currently in Standard rotation (updated yearly around April)
+# Year of the Pegasus (2024-2025): 2024 sets + 2025 sets + Core
+# After April 2025 rotation: 2023 sets rotate OUT
+# Verify at: https://hearthstone.wiki.gg/wiki/Standard_format
 STANDARD_SETS = {
-    "CORE", "PATH_OF_ARTHAS", "BATTLE_OF_THE_BANDS", "TITANS",
-    "WILD_WEST", "WHIZBANGS_WORKSHOP", "ISLAND_VACATION",
-    "GREAT_DARK_BEYOND", "RETURN_TO_UN_GORO",
+    "CORE",                   # Core (updated yearly)
+    "PATH_OF_ARTHAS",         # Death Knight starter
+    # 2024 expansions
+    "WHIZBANGS_WORKSHOP",     # Whizbang's Workshop
+    "ISLAND_VACATION",        # Perils in Paradise
+    "SPACE",                  # The Great Dark Beyond
+    # 2025 expansions
+    "EMERALD_DREAM",          # Into the Emerald Dream
+    "THE_LOST_CITY",          # The Lost City
+    "TIME_TRAVEL",            # Time Travel
+    "CATACLYSM",              # Cataclysm
 }
 
 
 def _is_standard_set(set_name: str) -> bool:
-    return set_name.upper().replace("'", "").replace(" ", "_") in STANDARD_SETS
+    return set_name in STANDARD_SETS
 
 
 def sync_cards_to_db(db: Session, hs_json_cards: list[dict], blizzard_cards: list[dict]) -> dict[str, int]:
