@@ -127,6 +127,29 @@ class GameEngine:
                 player.hero.weapon = None
 
     def remove_dead_minions(self, state: GameState):
+        # Process deathrattles for dead minions before removal
+        from src.simulator.spell_parser import parse_deathrattle_effects
+        for player_idx, player in enumerate([state.player1, state.player2]):
+            opponent = state.player2 if player_idx == 0 else state.player1
+            for m in player.board:
+                if m.is_dead and "DEATHRATTLE" in m.mechanics:
+                    effects = parse_deathrattle_effects(self.card_db.get(m.card_id, {}).get("text", ""))
+                    for eff in effects:
+                        if eff.effect_type == "damage":
+                            if opponent.board:
+                                import random as _rand
+                                t = _rand.choice(opponent.board)
+                                t.take_damage(eff.value)
+                        elif eff.effect_type == "draw":
+                            for _ in range(eff.value):
+                                player.draw_card()
+                        elif eff.effect_type == "summon" and not player.board_full:
+                            player.board.append(MinionState(
+                                card_id="token", name="Token",
+                                attack=eff.value, health=eff.value2, max_health=eff.value2,
+                                mana_cost=0,
+                            ))
+
         for player in (state.player1, state.player2):
             new_board: list[MinionState] = []
             for m in player.board:
@@ -170,15 +193,104 @@ class GameEngine:
         overload = card_data.get("overload", 0)
         if overload:
             player.overload += overload
+
+        # Apply battlecry
+        if "BATTLECRY" in mechanics:
+            from src.simulator.spell_parser import parse_battlecry_effects
+            effects = parse_battlecry_effects(card_data.get("text", ""))
+            for eff in effects:
+                if eff.effect_type == "damage":
+                    if eff.target == "enemy_hero":
+                        state.opponent.hero.take_damage(eff.value)
+                    elif state.opponent.board:
+                        t = max(state.opponent.board, key=lambda m: m.health)
+                        t.take_damage(eff.value)
+                elif eff.effect_type == "aoe_damage":
+                    if eff.target == "all_enemy_minions":
+                        for m in state.opponent.board:
+                            m.take_damage(eff.value)
+                    elif eff.target == "all_minions":
+                        for m in state.current_player.board + state.opponent.board:
+                            if m is not minion:
+                                m.take_damage(eff.value)
+                elif eff.effect_type == "draw":
+                    for _ in range(eff.value):
+                        player.draw_card()
+                elif eff.effect_type == "buff":
+                    minion.attack += eff.value
+                    minion.health += eff.value2
+                    minion.max_health += eff.value2
+                elif eff.effect_type == "heal":
+                    player.hero.health = min(player.hero.health + eff.value, player.hero.max_health)
+                elif eff.effect_type == "armor":
+                    player.hero.armor += eff.value
+
         return minion
 
     def play_spell(self, state: GameState, card_data: dict, target=None):
         player = state.current_player
+        opponent = state.opponent
         player.mana -= card_data.get("mana_cost", 0)
         # OVERLOAD
         overload = card_data.get("overload", 0)
         if overload:
             player.overload += overload
+
+        from src.simulator.spell_parser import parse_spell_effects
+        effects = parse_spell_effects(card_data.get("text", ""))
+
+        for eff in effects:
+            if eff.effect_type == "damage":
+                if eff.target == "enemy_hero":
+                    opponent.hero.take_damage(eff.value)
+                elif eff.target == "enemy_minion" and opponent.board:
+                    t = max(opponent.board, key=lambda m: m.health) if not target else target
+                    t.take_damage(eff.value)
+                elif eff.target == "auto":
+                    opponent.hero.take_damage(eff.value)
+
+            elif eff.effect_type == "aoe_damage":
+                if eff.target == "all_minions":
+                    for m in player.board + opponent.board:
+                        m.take_damage(eff.value)
+                elif eff.target == "all_enemy_minions":
+                    for m in opponent.board:
+                        m.take_damage(eff.value)
+
+            elif eff.effect_type == "heal":
+                if eff.target == "auto" or eff.target == "self_hero":
+                    player.hero.health = min(player.hero.health + eff.value, player.hero.max_health)
+
+            elif eff.effect_type == "draw":
+                for _ in range(eff.value):
+                    player.draw_card()
+
+            elif eff.effect_type == "buff" and player.board:
+                t = player.board[-1] if player.board else None
+                if t:
+                    t.attack += eff.value
+                    t.health += eff.value2
+                    t.max_health += eff.value2
+
+            elif eff.effect_type == "armor":
+                player.hero.armor += eff.value
+
+            elif eff.effect_type == "destroy" and opponent.board:
+                t = max(opponent.board, key=lambda m: m.health)
+                t.health = 0
+
+            elif eff.effect_type == "freeze_all":
+                for m in opponent.board:
+                    m.frozen = True
+
+            elif eff.effect_type == "summon" and not player.board_full:
+                player.board.append(MinionState(
+                    card_id="token", name="Token",
+                    attack=eff.value, health=eff.value2, max_health=eff.value2,
+                    mana_cost=0,
+                ))
+
+        self.remove_dead_minions(state)
 
     def apply_enrage(self, state: GameState):
         """Check all minions for enrage status and apply/remove bonus."""
