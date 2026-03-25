@@ -53,6 +53,17 @@ class MinionState:
             return False
         return True
 
+    def to_dict(self) -> dict:
+        return {
+            "card_id": self.card_id, "name": self.name,
+            "attack": self.attack, "health": self.health, "max_health": self.max_health,
+            "taunt": self.taunt, "divine_shield": self.divine_shield,
+            "stealth": self.stealth, "poisonous": self.poisonous,
+            "lifesteal": self.lifesteal, "reborn": self.reborn,
+            "rush": self.rush, "charge": self.charge, "frozen": self.frozen,
+            "windfury": self.windfury, "mechanics": self.mechanics,
+        }
+
     @property
     def can_attack_minions(self) -> bool:
         if not self.can_attack:
@@ -101,6 +112,13 @@ class HeroState:
         self.health -= remaining
         return amount
 
+    def to_dict(self) -> dict:
+        return {
+            "hero_class": self.hero_class, "health": self.health,
+            "armor": self.armor, "attack": self.attack,
+            "weapon": {"attack": self.weapon.attack, "durability": self.weapon.durability} if self.weapon else None,
+        }
+
     @property
     def is_dead(self) -> bool:
         return self.health <= 0
@@ -136,6 +154,14 @@ class PlayerState:
         self.hand.append(card)
         return card
 
+    def to_dict(self) -> dict:
+        return {
+            "hero": self.hero.to_dict(), "mana": self.mana, "max_mana": self.max_mana,
+            "hand_size": len(self.hand), "deck_size": len(self.deck),
+            "board": [m.to_dict() for m in self.board],
+            "fatigue_counter": self.fatigue_counter,
+        }
+
     @property
     def board_full(self) -> bool:
         return len(self.board) >= BOARD_LIMIT
@@ -159,6 +185,13 @@ class GameState:
     def switch_turn(self):
         self.current_player_idx = 1 - self.current_player_idx
         self.turn += 1
+
+    def to_dict(self) -> dict:
+        return {
+            "turn": self.turn, "current_player_idx": self.current_player_idx,
+            "player1": self.player1.to_dict(), "player2": self.player2.to_dict(),
+            "game_over": self.game_over,
+        }
 
     @property
     def game_over(self) -> bool:
