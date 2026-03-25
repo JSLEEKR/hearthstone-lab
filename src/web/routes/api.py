@@ -453,7 +453,7 @@ def run_simulation(
         result = run_match(
             deck_a=list(deck_a_list), deck_b=list(deck_b_list),
             hero_a=deck_a.hero_class, hero_b=deck_b.hero_class,
-            card_db=combined_card_db, max_turns=45,
+            card_db=combined_card_db, max_turns=60,
         )
         if result.winner == "A":
             results["deck_a_wins"] += 1
@@ -520,7 +520,7 @@ def run_single_match(
     result = run_match(
         deck_a=list(deck_a_list), deck_b=list(deck_b_list),
         hero_a=deck_a.hero_class, hero_b=deck_b.hero_class,
-        card_db=combined_card_db, max_turns=45,
+        card_db=combined_card_db, max_turns=60,
     )
     return {
         "success": True,

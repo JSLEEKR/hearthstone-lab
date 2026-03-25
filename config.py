@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     IMAGE_CACHE_DIR: Path = BASE_DIR / "src" / "web" / "static" / "card_cache"
     IMAGE_BASE_URL: str = "https://art.hearthstonejson.com/v1/render/latest/koKR/512x"
     SIM_MATCHES_PER_MATCHUP: int = 100
-    SIM_MAX_TURNS: int = 45
+    SIM_MAX_TURNS: int = 60
     MCTS_ITERATIONS: int = 1000
     MCTS_ITERATIONS_BULK: int = 200
     SCHEDULER_CRON_HOUR: int = 3

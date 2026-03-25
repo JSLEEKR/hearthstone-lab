@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class DebugRunner:
     def __init__(self, deck_a: list[str], deck_b: list[str],
                  hero_a: str, hero_b: str, card_db: dict,
-                 max_turns: int = 45, seed: int | None = None):
+                 max_turns: int = 60, seed: int | None = None):
         if seed is not None:
             random.seed(seed)
         self.card_db = card_db

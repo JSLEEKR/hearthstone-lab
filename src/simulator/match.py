@@ -21,7 +21,7 @@ class MatchResult:
 
 
 def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
-              card_db: dict, max_turns: int = 45, ai_class=None) -> MatchResult:
+              card_db: dict, max_turns: int = 60, ai_class=None) -> MatchResult:
     engine = GameEngine(card_db=card_db)
     if ai_class is None:
         from src.simulator.ai import RuleBasedAI

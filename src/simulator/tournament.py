@@ -76,7 +76,7 @@ class TournamentResult:
 
 class Tournament:
     def __init__(self, decks: dict[str, dict], card_db: dict,
-                 matches_per_pair: int = 50, ai_class=None, max_turns: int = 45):
+                 matches_per_pair: int = 50, ai_class=None, max_turns: int = 60):
         self.decks = decks
         self.card_db = card_db
         self.matches_per_pair = matches_per_pair

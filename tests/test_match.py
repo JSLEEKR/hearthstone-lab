@@ -16,16 +16,16 @@ class TestRunMatch:
         deck_a = [f"card_{i}" for i in range(15)] * 2
         deck_b = [f"card_{i}" for i in range(15)] * 2
         result = run_match(deck_a=deck_a, deck_b=deck_b, hero_a="MAGE",
-                           hero_b="WARRIOR", card_db=CARD_DB, max_turns=45)
+                           hero_b="WARRIOR", card_db=CARD_DB, max_turns=60)
         assert isinstance(result, MatchResult)
         assert result.turns > 0
-        assert result.turns <= 45
+        assert result.turns <= 60
 
     def test_match_has_winner_or_draw(self):
         deck_a = [f"card_{i}" for i in range(15)] * 2
         deck_b = [f"card_{i}" for i in range(15)] * 2
         result = run_match(deck_a=deck_a, deck_b=deck_b, hero_a="MAGE",
-                           hero_b="WARRIOR", card_db=CARD_DB, max_turns=45)
+                           hero_b="WARRIOR", card_db=CARD_DB, max_turns=60)
         assert result.winner in ("A", "B", None)
 
     def test_match_respects_max_turns(self):

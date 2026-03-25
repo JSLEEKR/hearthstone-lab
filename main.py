@@ -91,7 +91,7 @@ def main():
             for i in range(10):
                 result = run_match(deck_a=list(deck), deck_b=list(deck),
                                    hero_a="MAGE", hero_b="WARRIOR",
-                                   card_db=card_db, max_turns=45)
+                                   card_db=card_db, max_turns=60)
                 if result.winner == "A":
                     wins["A"] += 1
                 elif result.winner == "B":
@@ -103,7 +103,7 @@ def main():
             print("Running single match...")
             result = run_match(deck_a=list(deck), deck_b=list(deck),
                                hero_a="MAGE", hero_b="WARRIOR",
-                               card_db=card_db, max_turns=45)
+                               card_db=card_db, max_turns=60)
             print(f"Winner: {result.winner or 'Draw'}, Turns: {result.turns}")
     elif args.command == "tournament":
         from src.db.database import SessionLocal

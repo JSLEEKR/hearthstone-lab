@@ -373,7 +373,7 @@ class TestMatchSimulation:
             for i in range(30)
         }
         deck = [f"c_{i}" for i in range(15)] * 2
-        result = run_match(list(deck), list(deck), "MAGE", "WARRIOR", card_db, max_turns=45)
+        result = run_match(list(deck), list(deck), "MAGE", "WARRIOR", card_db, max_turns=60)
         assert result.turns > 0
         assert result.winner in ("A", "B", None)
 
@@ -390,7 +390,7 @@ class TestMatchSimulation:
         deck = [f"c_{i}" for i in range(15)] * 2
         wins = {"A": 0, "B": 0, "draw": 0}
         for _ in range(10):
-            r = run_match(list(deck), list(deck), "MAGE", "WARRIOR", card_db, max_turns=45)
+            r = run_match(list(deck), list(deck), "MAGE", "WARRIOR", card_db, max_turns=60)
             if r.winner == "A":
                 wins["A"] += 1
             elif r.winner == "B":
