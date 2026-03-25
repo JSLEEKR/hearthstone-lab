@@ -66,28 +66,54 @@ body {
 .container { max-width: 1400px; margin: 0 auto; padding: 1.25rem 1.5rem; }
 
 /* === Tier List === */
-.tier-section { margin-bottom: 1.5rem; }
-.tier-header {
-    display: inline-flex; align-items: center; gap: 0.5rem;
-    padding: 0.5rem 1rem; border-radius: 4px; font-size: 1.1rem; font-weight: bold;
-    margin-bottom: 0.75rem; border: 1px solid rgba(255,255,255,0.1);
+.tierlist-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 1.25rem;
 }
+.tierlist-header h1 { margin: 0; }
+.tier-section { margin-bottom: 1.5rem; }
+.tier-badge {
+    display: inline-flex; flex-direction: column; align-items: center;
+    padding: 0.4rem 0.75rem; border-radius: 4px; margin-bottom: 0.6rem;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+.tier-letter { font-size: 1.3rem; font-weight: bold; line-height: 1; }
+.tier-label { font-size: 0.6rem; text-transform: uppercase; opacity: 0.8; }
 .tier-S { background: linear-gradient(135deg, #cc0000, #ff4444); }
 .tier-A { background: linear-gradient(135deg, #cc6600, #ff8c00); }
 .tier-B { background: linear-gradient(135deg, #2e7d32, #4caf50); }
 .tier-C { background: linear-gradient(135deg, #1565c0, #5898d4); }
 .tier-D { background: linear-gradient(135deg, #555, #7a7a7a); }
 
-.deck-row {
+.tier-decks { display: flex; flex-direction: column; gap: 0.35rem; }
+.tier-deck-card {
+    display: flex; align-items: center; gap: 0;
     background: var(--bg-secondary); border: 1px solid var(--border-wood);
-    border-radius: 4px; padding: 0.75rem 1rem;
-    margin-bottom: 0.4rem; display: flex; justify-content: space-between; align-items: center;
-    transition: all 0.2s; cursor: pointer;
+    border-radius: 4px; overflow: hidden;
+    text-decoration: none; color: inherit; transition: all 0.2s;
 }
-.deck-row:hover { background: var(--bg-card); border-color: var(--border-gold); }
-.deck-name { font-weight: 600; }
-.deck-class { color: var(--text-secondary); font-size: 0.85rem; }
-.deck-winrate { font-weight: bold; color: var(--gold); }
+.tier-deck-card:hover { border-color: var(--border-gold); box-shadow: 0 2px 8px rgba(139,105,20,0.2); }
+.tier-deck-class {
+    display: flex; align-items: center; justify-content: center;
+    width: 48px; min-height: 56px; flex-shrink: 0;
+}
+.tier-class-icon { font-size: 1.4rem; }
+.tier-deck-info { flex: 1; padding: 0.5rem 0.75rem; min-width: 0; }
+.tier-deck-name { font-weight: 600; font-size: 0.9rem; }
+.tier-deck-class-name { font-size: 0.75rem; color: var(--text-secondary); }
+.tier-deck-stats {
+    display: flex; gap: 0; margin-left: auto; flex-shrink: 0;
+}
+.tier-stat {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 0.4rem 1rem; min-width: 70px;
+    border-left: 1px solid rgba(92,58,30,0.3);
+}
+.tier-stat-value { font-size: 0.9rem; font-weight: bold; }
+.tier-stat-label { font-size: 0.6rem; color: var(--text-secondary); text-transform: uppercase; }
+.stat-high { color: #4caf50; }
+.stat-mid { color: var(--gold); }
+.stat-low { color: #e57373; }
 
 /* === Cards Page Layout === */
 .cards-layout {
@@ -263,26 +289,36 @@ body {
     background: var(--bg-secondary); border: 1px solid var(--border-wood);
     border-radius: 6px; padding: 0.75rem;
 }
-.builder-card-list {
-    max-height: calc(100vh - 220px); overflow-y: auto;
+/* Builder Card Grid (image tiles) */
+.builder-card-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.5rem; max-height: calc(100vh - 200px); overflow-y: auto;
     scrollbar-width: thin; scrollbar-color: var(--border-wood) transparent;
 }
-.builder-card-row {
-    display: flex; align-items: center; gap: 0.5rem;
-    padding: 0.4rem 0.5rem; border-bottom: 1px solid rgba(92,58,30,0.2);
-    cursor: pointer; transition: background 0.15s;
+.builder-card-tile {
+    position: relative; border-radius: 6px; overflow: hidden;
+    cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+    border: 1px solid var(--border-wood); background: var(--bg-card);
 }
-.builder-card-row:hover { background: var(--bg-card); }
-.builder-card-info { flex: 1; min-width: 0; }
-.builder-card-info .card-name { font-size: 0.85rem; display: block; }
-.builder-card-meta {
-    font-size: 0.7rem; color: var(--text-secondary); display: flex; gap: 0.5rem;
+.builder-card-tile:hover {
+    transform: translateY(-2px); box-shadow: 0 4px 12px rgba(139,105,20,0.3);
+    border-color: var(--border-gold);
 }
-.builder-add-btn {
-    color: var(--gold-dim); font-size: 1.1rem; font-weight: bold;
-    width: 24px; text-align: center; opacity: 0; transition: opacity 0.15s;
+.builder-card-tile img { width: 100%; display: block; }
+.builder-tile-overlay {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+    padding: 1.5rem 0.4rem 0.3rem; display: flex; align-items: center; gap: 0.3rem;
 }
-.builder-card-row:hover .builder-add-btn { opacity: 1; }
+.builder-tile-name { font-size: 0.7rem; color: white; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.builder-tile-add {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255,123,0,0.9); color: white; font-size: 1.5rem;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.15s; pointer-events: none;
+}
+.builder-card-tile:hover .builder-tile-add { opacity: 1; }
 
 .deck-list-panel {
     background: var(--bg-secondary); border: 1px solid var(--border-wood);

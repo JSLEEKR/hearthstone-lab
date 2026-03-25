@@ -20,6 +20,10 @@
                 <option value="DEMONHUNTER">악마사냥꾼</option>
                 <option value="DEATHKNIGHT">죽음의 기사</option>
             </select>
+            <select x-model="formatFilter" @change="searchCards()">
+                <option value="">전체</option>
+                <option value="standard">스탠다드</option>
+            </select>
             <input type="text" placeholder="카드 검색..." x-model="searchQuery"
                    @input.debounce.300ms="searchCards()">
             <select x-model="costFilter" @change="searchCards()">
@@ -32,22 +36,19 @@
             <button class="btn btn-primary" @click="aiRecommend()">AI 추천</button>
         </div>
 
-        <div class="builder-card-list">
+        <div class="builder-card-grid">
             <template x-for="card in cards" :key="card.card_id">
-                <div class="builder-card-row" @click="addCard(card)">
-                    <span class="card-cost" x-text="card.mana_cost"></span>
-                    <div class="builder-card-info">
-                        <span class="card-name" x-text="card.name_ko || card.name"></span>
-                        <span class="builder-card-meta">
-                            <span x-text="card.attack !== null ? card.attack + '/' + card.health : ''"></span>
-                            <span x-text="card.card_type === 'MINION' ? '하수인' : card.card_type === 'SPELL' ? '주문' : card.card_type === 'WEAPON' ? '무기' : card.card_type"></span>
-                            <span class="builder-rarity" :style="'color:' + rarityColor(card.rarity)" x-text="card.rarity"></span>
-                        </span>
+                <div class="builder-card-tile" @click="addCard(card)">
+                    <img :src="card.image_url" :alt="card.name_ko || card.name" loading="lazy"
+                         onerror="this.style.display='none'">
+                    <div class="builder-tile-overlay">
+                        <span class="card-cost" x-text="card.mana_cost"></span>
+                        <span class="builder-tile-name" x-text="card.name_ko || card.name"></span>
                     </div>
-                    <span class="builder-add-btn">+</span>
+                    <div class="builder-tile-add">+</div>
                 </div>
             </template>
-            <div x-show="cards.length === 0" style="padding:1rem;color:var(--text-secondary);text-align:center;">
+            <div x-show="cards.length === 0" style="grid-column:1/-1;padding:2rem;color:var(--text-secondary);text-align:center;">
                 <span x-show="!heroClass">직업을 선택하세요</span>
                 <span x-show="heroClass">카드를 찾을 수 없습니다</span>
             </div>
@@ -92,8 +93,7 @@
 
         <!-- Import -->
         <div style="margin-top:1rem;border-top:1px solid var(--border-wood);padding-top:0.75rem;">
-            <input type="text" placeholder="덱 코드 붙여넣기..." x-model="importCode"
-                   class="sidebar-input">
+            <input type="text" placeholder="덱 코드 붙여넣기..." x-model="importCode" class="sidebar-input">
             <button class="btn btn-secondary" style="width:100%;margin-top:0.5rem;" @click="importDeck()">가져오기</button>
         </div>
     </div>
@@ -102,7 +102,7 @@
 <script>
 function deckBuilder() {
     return {
-        heroClass: '', searchQuery: '', costFilter: '',
+        heroClass: '', searchQuery: '', costFilter: '', formatFilter: 'standard',
         cards: [], deckCards: [],
         deckId: null, importCode: '',
         page: 1, totalPages: 0, totalResults: 0,
@@ -114,26 +114,20 @@ function deckBuilder() {
             return curve;
         },
 
-        rarityColor(r) {
-            return {FREE:'#9d9d9d',COMMON:'#9d9d9d',RARE:'#0070dd',EPIC:'#a335ee',LEGENDARY:'#ff8000'}[r]||'#888';
-        },
-
-        async searchCards() {
-            this.page = 1;
-            await this.fetchCards();
-        },
+        async searchCards() { this.page = 1; await this.fetchCards(); },
         async fetchCards() {
             let params = new URLSearchParams();
             if (this.searchQuery) params.set('q', this.searchQuery);
             if (this.heroClass) params.set('hero_class', this.heroClass);
             if (this.costFilter) params.set('cost', this.costFilter);
+            if (this.formatFilter) params.set('format_filter', this.formatFilter);
             params.set('page', this.page);
-            params.set('per_page', 30);
+            params.set('per_page', 24);
             let res = await fetch('/api/cards?' + params);
             let data = await res.json();
             this.cards = data.cards || [];
             this.totalResults = data.total || 0;
-            this.totalPages = Math.ceil(this.totalResults / (data.per_page || 30));
+            this.totalPages = Math.ceil(this.totalResults / (data.per_page || 24));
         },
         prevPage() { if (this.page > 1) { this.page--; this.fetchCards(); } },
         nextPage() { if (this.page < this.totalPages) { this.page++; this.fetchCards(); } },
@@ -147,7 +141,7 @@ function deckBuilder() {
         async addCard(card) {
             if (this.totalCards >= 30) return;
             await this.createDeckIfNeeded();
-            let res = await fetch(`/api/deck/add-card?deck_id=${this.deckId}&card_id=${card.card_id}`, {method:'POST'});
+            let res = await fetch('/api/deck/add-card?deck_id=' + this.deckId + '&card_id=' + card.card_id, {method:'POST'});
             let data = await res.json();
             if (data.success) {
                 let existing = this.deckCards.find(c => c.card_id === card.card_id);
@@ -157,7 +151,7 @@ function deckBuilder() {
             }
         },
         async removeCard(card) {
-            let res = await fetch(`/api/deck/remove-card?deck_id=${this.deckId}&card_id=${card.card_id}`, {method:'POST'});
+            let res = await fetch('/api/deck/remove-card?deck_id=' + this.deckId + '&card_id=' + card.card_id, {method:'POST'});
             let data = await res.json();
             if (data.success) {
                 if (card.count > 1) card.count--;
@@ -166,13 +160,14 @@ function deckBuilder() {
         },
         async aiRecommend() {
             if (!this.heroClass) { alert('직업을 먼저 선택하세요.'); return; }
-            let res = await fetch(`/api/deck/ai-recommend?hero_class=${this.heroClass}`, {method:'POST'});
+            let f = this.formatFilter || 'standard';
+            let res = await fetch('/api/deck/ai-recommend?hero_class=' + this.heroClass + '&format=' + f, {method:'POST'});
             let data = await res.json();
             this.deckCards = (data.cards || []).sort((a, b) => a.mana_cost - b.mana_cost);
         },
         async importDeck() {
             if (!this.importCode) return;
-            let res = await fetch(`/api/deck/import?deckstring=${encodeURIComponent(this.importCode)}`, {method:'POST'});
+            let res = await fetch('/api/deck/import?deckstring=' + encodeURIComponent(this.importCode), {method:'POST'});
             let data = await res.json();
             if (data.success) { window.location.href = '/deck/' + data.deck_id; }
             else { alert(data.error || '가져오기 실패'); }

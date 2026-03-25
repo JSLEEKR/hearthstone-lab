@@ -1,29 +1,79 @@
 {% extends "base.html" %}
 {% block title %}티어리스트 - HS Deck Maker{% endblock %}
 {% block content %}
-<h1>덱 티어리스트</h1>
-<div class="format-toggle">
-    <a href="/?format=standard" class="{% if format == 'standard' %}active{% endif %}">스탠다드</a>
-    <a href="/?format=wild" class="{% if format == 'wild' %}active{% endif %}">와일드</a>
+<div class="tierlist-header">
+    <h1>덱 티어리스트</h1>
+    <div class="format-toggle">
+        <a href="/?format=standard" class="{% if format == 'standard' %}active{% endif %}">스탠다드</a>
+        <a href="/?format=wild" class="{% if format == 'wild' %}active{% endif %}">와일드</a>
+    </div>
 </div>
 
+{% set class_icons = {
+    'MAGE': '/static/css/class-mage.svg',
+    'WARRIOR': '/static/css/class-warrior.svg',
+} %}
+
+{% set class_ko = {
+    'MAGE': '마법사', 'WARRIOR': '전사', 'PALADIN': '성기사',
+    'HUNTER': '사냥꾼', 'ROGUE': '도적', 'PRIEST': '사제',
+    'SHAMAN': '주술사', 'WARLOCK': '흑마법사', 'DRUID': '드루이드',
+    'DEMONHUNTER': '악마사냥꾼', 'DEATHKNIGHT': '죽음의 기사', 'NEUTRAL': '중립'
+} %}
+
+{% set class_colors = {
+    'MAGE': '#3fc7eb', 'WARRIOR': '#c79c6e', 'PALADIN': '#f58cba',
+    'HUNTER': '#abd473', 'ROGUE': '#fff569', 'PRIEST': '#ffffff',
+    'SHAMAN': '#0070de', 'WARLOCK': '#9482c9', 'DRUID': '#ff7d0a',
+    'DEMONHUNTER': '#a9d271', 'DEATHKNIGHT': '#c41e3a', 'NEUTRAL': '#888888'
+} %}
+
 {% for tier_name in ['S', 'A', 'B', 'C', 'D'] %}
+{% if tiers[tier_name] %}
 <div class="tier-section">
-    <div class="tier-header tier-{{ tier_name }}">{{ tier_name }} Tier</div>
-    {% for deck in tiers[tier_name] %}
-    <a href="/deck/{{ deck.deck_id }}" style="text-decoration:none;color:inherit;">
-        <div class="deck-row">
-            <div>
-                <span class="deck-name">{{ deck.deck_name }}</span>
-                <span class="deck-class">{{ deck.hero_class }}</span>
+    <div class="tier-badge tier-{{ tier_name }}">
+        <span class="tier-letter">{{ tier_name }}</span>
+        <span class="tier-label">Tier</span>
+    </div>
+
+    <div class="tier-decks">
+        {% for deck in tiers[tier_name] %}
+        <a href="/deck/{{ deck.deck_id }}" class="tier-deck-card">
+            <div class="tier-deck-class" style="background: {{ class_colors.get(deck.hero_class, '#888') }}20; border-left: 3px solid {{ class_colors.get(deck.hero_class, '#888') }};">
+                <span class="tier-class-icon" style="color: {{ class_colors.get(deck.hero_class, '#888') }};">
+                    {% if deck.hero_class == 'MAGE' %}&#9733;{% elif deck.hero_class == 'WARRIOR' %}&#9876;{% elif deck.hero_class == 'PALADIN' %}&#9768;{% elif deck.hero_class == 'HUNTER' %}&#10148;{% elif deck.hero_class == 'ROGUE' %}&#9760;{% elif deck.hero_class == 'PRIEST' %}&#10013;{% elif deck.hero_class == 'SHAMAN' %}&#9730;{% elif deck.hero_class == 'WARLOCK' %}&#9762;{% elif deck.hero_class == 'DRUID' %}&#9752;{% elif deck.hero_class == 'DEMONHUNTER' %}&#10070;{% elif deck.hero_class == 'DEATHKNIGHT' %}&#9763;{% else %}&#9670;{% endif %}
+                </span>
             </div>
-            <span class="deck-winrate">{{ "%.1f"|format(deck.combined_winrate) }}%</span>
-        </div>
-    </a>
-    {% endfor %}
-    {% if not tiers[tier_name] %}
-    <div class="deck-row" style="color: var(--text-secondary);">이 티어에 덱이 없습니다.</div>
-    {% endif %}
+            <div class="tier-deck-info">
+                <div class="tier-deck-name">{{ deck.deck_name }}</div>
+                <div class="tier-deck-class-name">{{ class_ko.get(deck.hero_class, deck.hero_class) }}</div>
+            </div>
+            <div class="tier-deck-stats">
+                <div class="tier-stat">
+                    <span class="tier-stat-value {% if deck.combined_winrate >= 55 %}stat-high{% elif deck.combined_winrate >= 50 %}stat-mid{% else %}stat-low{% endif %}">{{ "%.1f"|format(deck.combined_winrate) }}%</span>
+                    <span class="tier-stat-label">승률</span>
+                </div>
+                <div class="tier-stat">
+                    <span class="tier-stat-value">{{ "{:,}".format(deck.games_played) }}</span>
+                    <span class="tier-stat-label">게임</span>
+                </div>
+                <div class="tier-stat">
+                    <span class="tier-stat-value">{{ "%.1f"|format(deck.playrate) }}%</span>
+                    <span class="tier-stat-label">픽률</span>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
 </div>
+{% endif %}
 {% endfor %}
+
+{% set has_any = tiers['S'] or tiers['A'] or tiers['B'] or tiers['C'] or tiers['D'] %}
+{% if not has_any %}
+<div style="text-align:center;padding:3rem;color:var(--text-secondary);">
+    <p>티어리스트 데이터가 없습니다.</p>
+    <p style="margin-top:0.5rem;font-size:0.85rem;">python main.py update-tierlist 명령으로 업데이트하세요.</p>
+</div>
+{% endif %}
 {% endblock %}
