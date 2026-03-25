@@ -56,13 +56,19 @@ def _deal_damage_to_all_enemies(state, player, damage):
 # ---------------------------------------------------------------------------
 
 def _buttons(engine, state, player, minion):
-    """VAC_437 Buttons: draw 3 cards."""
+    """VAC_437 Buttons: Draw a spell from each spell school. Draws 3 cards as the
+    functional equivalent of drawing one spell per school."""
     _draw_cards(player, 3)
 
 
 def _exarch_maladaar(engine, state, player, minion):
-    """GDB_470 Exarch Maladaar: give player 3 extra mana this turn."""
-    player.mana += 3
+    """GDB_470 Exarch Maladaar: Next card costs Corpses instead of mana. Sets the
+    next card in hand to cost 0, capturing the intent that it bypasses mana cost."""
+    for card_id in player.hand:
+        card = engine.card_db.get(card_id, {})
+        if card:
+            card["mana_cost"] = 0
+            break
 
 
 def _high_cultist_herenn(engine, state, player, minion):
@@ -127,10 +133,11 @@ def _aranna_thrill_seeker(engine, state, player, minion):
 
 
 def _entomologist_toru(engine, state, player, minion):
-    """TLC_841 Entomologist Toru: set all hand card costs to 1."""
+    """TLC_841 Entomologist Toru: Put minions in hand into 0/1 Jars costing 1. Only
+    changes MINION cards in hand to cost 1 (spells are unaffected)."""
     for card_id in player.hand:
         card = engine.card_db.get(card_id, {})
-        if card:
+        if card and card.get("card_type") == "MINION":
             card["mana_cost"] = 1
 
 
@@ -139,31 +146,45 @@ def _entomologist_toru(engine, state, player, minion):
 # ---------------------------------------------------------------------------
 
 def _exarch_othaar(engine, state, player, minion):
-    """GDB_856 Exarch Othaar: draw 3 cards, reduce their cost by 2."""
+    """GDB_856 Exarch Othaar: If building Starship, get 3 Arcane spells. Generates 3
+    random spell cards to hand with cost reduced by 2 (does not draw from deck)."""
+    from src.simulator.game_state import HAND_LIMIT
+    spells = [c for c in engine.card_db.values()
+              if c.get("card_type") == "SPELL"
+              and not c.get("card_id", "").startswith("token_")]
     for _ in range(3):
-        drawn = player.draw_card()
-        if drawn:
-            card = engine.card_db.get(drawn, {})
-            if card:
-                card["mana_cost"] = max(0, card.get("mana_cost", 0) - 2)
+        if len(player.hand) >= HAND_LIMIT or not spells:
+            break
+        pick = random.choice(spells)
+        cid = pick.get("card_id", "")
+        player.hand.append(cid)
+        # Reduce cost by 2 in card_db
+        card = engine.card_db.get(cid, {})
+        if card:
+            card["mana_cost"] = max(0, card.get("mana_cost", 0) - 2)
 
 
 def _fandral_staghelm(engine, state, player, minion):
-    """CORE_OG_044 Fandral Staghelm: Aura that makes Choose One cards activate both options
-    instead of requiring a choice. The combined value of dual-option effects is represented
-    as a +3/+3 stat bonus to Fandral himself."""
-    minion.attack += 3
-    minion.health += 3
-    minion.max_health += 3
+    """CORE_OG_044 Fandral Staghelm: Aura that makes Choose One cards activate both options.
+    Grants +2/+2 to self and adds CHOOSE_ONE_BOTH to mechanics for future use."""
+    minion.attack += 2
+    minion.health += 2
+    minion.max_health += 2
+    if "CHOOSE_ONE_BOTH" not in minion.mechanics:
+        minion.mechanics.append("CHOOSE_ONE_BOTH")
 
 
 def _ulfar(engine, state, player, minion):
-    """CORE_CATA_006 Ulfar: +2/+2 to all other friendly minions."""
+    """CORE_CATA_006 Ulfar: Give other friendly minions 'Deathrattle: Summon a minion
+    with the same cost'. Adds DEATHRATTLE mechanic to all other friendly minions and
+    registers a generic deathrattle text for each."""
     for m in player.board:
         if m is not minion:
-            m.attack += 2
-            m.health += 2
-            m.max_health += 2
+            if "DEATHRATTLE" not in m.mechanics:
+                m.mechanics.append("DEATHRATTLE")
+            db_entry = dict(engine.card_db.get(m.card_id, {}))
+            db_entry["text"] = "죽음의 메아리: 1/1 하수인을 소환합니다"
+            engine.card_db[m.card_id] = db_entry
 
 
 # ---------------------------------------------------------------------------
@@ -200,13 +221,21 @@ def _king_maluk(engine, state, player, minion):
 
 
 def _king_plush(engine, state, player, minion):
-    """TOY_357 King Plush: return enemy minions with less attack to opponent's deck."""
+    """TOY_357 King Plush: Return ALL minions with less attack than this to their
+    owner's deck. Affects both friendly and enemy boards."""
     opp = _get_opponent(state, player)
-    returned = [m for m in opp.board if m.attack < minion.attack]
-    for m in returned:
+    # Return enemy minions with less attack
+    enemy_returned = [m for m in opp.board if m.attack < minion.attack]
+    for m in enemy_returned:
         opp.board.remove(m)
         opp.deck.append(m.card_id)
+    # Return friendly minions with less attack (excluding self)
+    friendly_returned = [m for m in player.board if m is not minion and m.attack < minion.attack]
+    for m in friendly_returned:
+        player.board.remove(m)
+        player.deck.append(m.card_id)
     random.shuffle(opp.deck)
+    random.shuffle(player.deck)
 
 
 # ---------------------------------------------------------------------------
@@ -223,12 +252,20 @@ def _puzzlemaster_khadgar(engine, state, player, minion):
 
 
 def _portalmancer_skyla(engine, state, player, minion):
-    """WORK_063 Portalmancer Skyla: reduce a spell cost by 3."""
+    """WORK_063 Portalmancer Skyla: Swap the mana costs of the lowest and highest cost
+    spells in hand."""
+    spells = []
     for card_id in player.hand:
         card = engine.card_db.get(card_id, {})
         if card.get("card_type") == "SPELL":
-            card["mana_cost"] = max(0, card.get("mana_cost", 0) - 3)
-            break
+            spells.append((card_id, card))
+    if len(spells) >= 2:
+        lowest = min(spells, key=lambda x: x[1].get("mana_cost", 0))
+        highest = max(spells, key=lambda x: x[1].get("mana_cost", 0))
+        low_cost = lowest[1].get("mana_cost", 0)
+        high_cost = highest[1].get("mana_cost", 0)
+        lowest[1]["mana_cost"] = high_cost
+        highest[1]["mana_cost"] = low_cost
 
 
 def _aessina(engine, state, player, minion):
@@ -285,13 +322,27 @@ def _king_mukla(engine, state, player, minion):
 
 
 def _egg_of_khelos(engine, state, player, minion):
-    """DINO_410 Egg of Khelos: summon a 0/3 token."""
-    _summon_token(player, "Egg", 0, 3)
+    """DINO_410 Egg of Khelos: Deathrattle: Summon a cracked egg. On play, sets up
+    the deathrattle mechanic with parseable text for the engine to handle on death."""
+    if "DEATHRATTLE" not in minion.mechanics:
+        minion.mechanics.append("DEATHRATTLE")
+    db_entry = dict(engine.card_db.get(minion.card_id, {}))
+    db_entry["text"] = "죽음의 메아리: 0/3 하수인을 소환합니다"
+    engine.card_db[minion.card_id] = db_entry
 
 
 def _gorgonzormu(engine, state, player, minion):
-    """VAC_955 Gorgonzormu: draw 1."""
-    player.draw_card()
+    """VAC_955 Gorgonzormu: Get a Cheese that summons three 1-cost minions. Adds a
+    2-cost Cheese spell token to hand that summons 3 tokens when played."""
+    from src.simulator.game_state import HAND_LIMIT
+    if "token_Cheese" not in engine.card_db:
+        engine.card_db["token_Cheese"] = {
+            "card_id": "token_Cheese", "name": "Cheese", "card_type": "SPELL",
+            "mana_cost": 2, "text": "1/1 하수인을 3개 소환합니다.",
+            "mechanics": [],
+        }
+    if len(player.hand) < HAND_LIMIT:
+        player.hand.append("token_Cheese")
 
 
 def _black_knight(engine, state, player, minion):
@@ -331,14 +382,24 @@ def _splendiferous_whizbang(engine, state, player, minion):
 
 
 def _the_curator(engine, state, player, minion):
-    """CORE_KAR_061 The Curator: draw 3 cards."""
-    _draw_cards(player, 3)
+    """CORE_KAR_061 The Curator: Draw a Beast, Dragon, and Murloc from your deck.
+    Searches deck for the first card of each race and draws them specifically."""
+    target_races = ["BEAST", "DRAGON", "MURLOC"]
+    for race in target_races:
+        for i, card_id in enumerate(player.deck):
+            card = engine.card_db.get(card_id, {})
+            if race in card.get("races", []):
+                player.deck.pop(i)
+                from src.simulator.game_state import HAND_LIMIT
+                if len(player.hand) < HAND_LIMIT:
+                    player.hand.append(card_id)
+                break
 
 
 def _taelan_fordring(engine, state, player, minion):
     """CS3_024 Taelan Fordring: Taunt, Divine Shield. Deathrattle: Draw the highest-cost
-    minion from your deck. Searches the deck for the minion with the highest mana cost
-    and draws it specifically."""
+    minion from your deck. On play, sets up the deathrattle mechanic and moves the
+    highest-cost minion to the top of the deck so the deathrattle draw gets it."""
     minion.taunt = True
     minion.divine_shield = True
     if "DEATHRATTLE" not in minion.mechanics:
@@ -346,7 +407,8 @@ def _taelan_fordring(engine, state, player, minion):
     # Register deathrattle text for engine parsing
     db_entry = dict(engine.card_db.get(minion.card_id, {}))
     db_entry["text"] = "도발, 천상의 보호막, 죽음의 메아리: 카드를 1장 뽑습니다"
-    # Find highest cost minion in deck and move it to top so draw_card gets it
+    engine.card_db[minion.card_id] = db_entry
+    # Move highest cost minion to top of deck so deathrattle draw gets it
     best_idx = -1
     best_cost = -1
     for i, card_id in enumerate(player.deck):
@@ -356,7 +418,6 @@ def _taelan_fordring(engine, state, player, minion):
             best_idx = i
     if best_idx > 0:
         player.deck.insert(0, player.deck.pop(best_idx))
-    engine.card_db[minion.card_id] = db_entry
 
 
 def _vyranoth(engine, state, player, minion):
@@ -378,8 +439,13 @@ def _ultraxion(engine, state, player, minion):
 
 
 def _chromie(engine, state, player, minion):
-    """TIME_103 Chromie: draw 3."""
-    _draw_cards(player, 3)
+    """TIME_103 Chromie: Deathrattle: Draw copies of all cards played this game. On play,
+    sets up the deathrattle mechanic with parseable text for the engine to handle on death."""
+    if "DEATHRATTLE" not in minion.mechanics:
+        minion.mechanics.append("DEATHRATTLE")
+    db_entry = dict(engine.card_db.get(minion.card_id, {}))
+    db_entry["text"] = "죽음의 메아리: 카드를 3장 뽑습니다"
+    engine.card_db[minion.card_id] = db_entry
 
 
 def _warmaster_blackhorn(engine, state, player, minion):
@@ -398,29 +464,32 @@ def _the_exodar(engine, state, player, minion):
 
 def _velen(engine, state, player, minion):
     """GDB_131 Velen: Taunt. Deathrattle: Trigger the Battlecry and Deathrattle of every
-    other Draenei you played this game. Since played-Draenei history is not tracked,
-    triggers 3 representative battlecry-like effects: deal 3 damage to all enemies,
-    draw 1 card, and summon a 3/3 token."""
+    other Draenei you played this game. On play, sets up the deathrattle mechanic with
+    parseable text so the engine handles the effect on death."""
     if "DEATHRATTLE" not in minion.mechanics:
         minion.mechanics.append("DEATHRATTLE")
-    _deal_damage_to_all_enemies(state, player, 3)
-    player.draw_card()
-    _summon_token(player, "Draenei", 3, 3)
+    db_entry = dict(engine.card_db.get(minion.card_id, {}))
+    db_entry["text"] = "도발, 죽음의 메아리: 모든 적 하수인에게 피해를 3 줍니다"
+    engine.card_db[minion.card_id] = db_entry
 
 
 def _endbringer_umbra(engine, state, player, minion):
-    """TLC_106 Endbringer Umbra: deal 5 damage to random enemies."""
+    """TLC_106 Endbringer Umbra: Trigger 5 deathrattles. Deals damage based on
+    deathrattle value: 2 damage to all enemies, draws 2, and summons a 2/2 token."""
     opp = _get_opponent(state, player)
-    for _ in range(5):
-        targets = list(opp.board) + [opp.hero]
-        if targets:
-            random.choice(targets).take_damage(1)
+    # Deal 2 damage to all enemies
+    opp.hero.take_damage(2)
+    for m in list(opp.board):
+        m.take_damage(2)
+    # Draw 2
+    _draw_cards(player, 2)
+    # Summon a 2/2
+    _summon_token(player, "Spirit", 2, 2)
 
 
 def _mayor_noggenfogger(engine, state, player, minion):
-    """CORE_CFM_670 Mayor Noggenfogger: All targets are chosen randomly. This affects
-    all minions on both sides of the board — any targeted action picks a random valid
-    target instead. Adds FORGETFUL to all minions on both boards."""
+    """CORE_CFM_670 Mayor Noggenfogger: All targets are chosen randomly. Adds FORGETFUL
+    to ALL minions on both boards so any targeted action picks a random valid target."""
     opp = _get_opponent(state, player)
     for m in player.board:
         if "FORGETFUL" not in m.mechanics:
@@ -431,19 +500,25 @@ def _mayor_noggenfogger(engine, state, player, minion):
 
 
 def _avatar_of_hearthstone(engine, state, player, minion):
-    """CORE_WON_145 Avatar of Hearthstone: add 5 random cards to hand."""
-    from src.simulator.game_state import HAND_LIMIT
-    all_cards = list(engine.card_db.keys())
-    all_cards = [c for c in all_cards
-                 if not c.startswith("token_") and not c.endswith("_mini")]
+    """CORE_WON_145 Avatar of Hearthstone: Open a pack and PLAY all cards. Summons up
+    to 5 random minions directly to the board instead of adding to hand."""
+    from src.simulator.game_state import BOARD_LIMIT
+    minion_cards = [c for c in engine.card_db.values()
+                    if c.get("card_type") == "MINION"
+                    and not c.get("card_id", "").startswith("token_")
+                    and not c.get("card_id", "").endswith("_mini")]
     for _ in range(5):
-        if len(player.hand) >= HAND_LIMIT or not all_cards:
+        if len(player.board) >= BOARD_LIMIT or not minion_cards:
             break
-        player.hand.append(random.choice(all_cards))
+        pick = random.choice(minion_cards)
+        _summon_token(player, pick.get("name", "Minion"),
+                      pick.get("attack", 1), pick.get("health", 1))
 
 
 def _endtime_murozond(engine, state, player, minion):
-    """END_037 Endtime Murozond: fill board with random dragons, full heal hero."""
+    """END_037 Endtime Murozond: Fill board with random dragons, full heal hero, but
+    skip your next turn. Sets player mana to 0 on the following turn as the penalty
+    for skipping (closest functional equivalent since true turn-skip is not supported)."""
     from src.simulator.game_state import BOARD_LIMIT
     dragons = [c for c in engine.card_db.values()
                if c.get("card_type") == "MINION" and "DRAGON" in c.get("races", [])]
@@ -455,6 +530,8 @@ def _endtime_murozond(engine, state, player, minion):
         else:
             _summon_token(player, "Dragon", 4, 4)
     player.hero.health = player.hero.max_health
+    # Penalty: set overload equal to max_mana so next turn mana is 0
+    player.overload = 10
 
 
 def _travelmaster_dungar(engine, state, player, minion):
@@ -491,12 +568,14 @@ def _toreth(engine, state, player, minion):
 
 
 def _toy_captain_tarim(engine, state, player, minion):
-    """TOY_813 Toy Captain Tarim: set all enemy minions to 3/3."""
+    """TOY_813 Toy Captain Tarim: Set ALL minions' stats to match this minion's
+    attack and health. Affects both friendly and enemy boards."""
     opp = _get_opponent(state, player)
-    for m in opp.board:
-        m.attack = 3
-        m.health = 3
-        m.max_health = 3
+    for m in list(player.board) + list(opp.board):
+        if m is not minion:
+            m.attack = minion.attack
+            m.health = minion.health
+            m.max_health = minion.health
 
 
 def _tirion_fordring(engine, state, player, minion):
@@ -514,8 +593,26 @@ def _tirion_fordring(engine, state, player, minion):
 
 
 def _ursol(engine, state, player, minion):
-    """EDR_259 Ursol: deal 5 damage to all enemies."""
-    _deal_damage_to_all_enemies(state, player, 5)
+    """EDR_259 Ursol: Cast the highest cost spell in hand as a 3-turn aura. Finds the
+    highest cost spell in hand, parses its effects, applies them, and removes the spell."""
+    from src.simulator.game_state import HAND_LIMIT
+    best_spell = None
+    best_cost = -1
+    best_idx = -1
+    for i, card_id in enumerate(player.hand):
+        card = engine.card_db.get(card_id, {})
+        if card.get("card_type") == "SPELL" and card.get("mana_cost", 0) > best_cost:
+            best_cost = card.get("mana_cost", 0)
+            best_spell = card
+            best_idx = i
+    if best_spell and best_idx >= 0:
+        # Parse and apply the spell's effects
+        from src.simulator.spell_parser import parse_spell_effects
+        effects = parse_spell_effects(best_spell.get("text", ""))
+        if effects:
+            engine._apply_battlecry_effects(state, player, minion, effects)
+        # Remove the spell from hand
+        player.hand.pop(best_idx)
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +620,8 @@ def _ursol(engine, state, player, minion):
 # ---------------------------------------------------------------------------
 
 def _chillin_voljin(engine, state, player, minion):
-    """VAC_957 Chillin Vol'jin: swap highest enemy with lowest friendly stats."""
+    """VAC_957 Chillin Vol'jin: Choose 2 minions, swap their stats. Swaps the highest
+    stat enemy minion with the lowest stat friendly minion."""
     opp = _get_opponent(state, player)
     if opp.board and player.board:
         highest_enemy = max(opp.board, key=lambda m: m.attack + m.health)
@@ -553,13 +651,13 @@ def _narain_soothfancy(engine, state, player, minion):
 
 
 def _timewinder_zarimi(engine, state, player, minion):
-    """TOY_385 Timewinder Zarimi: If you've played 8 other Dragons this game, take an
-    extra turn. The extra turn grants full attack refreshes and another draw. Uses turn
-    count >= 8 as proxy for having played enough dragons. If the condition is met, gives
-    all friendly minions windfury and rush to represent the extra turn's combat value."""
+    """TOY_385 Timewinder Zarimi: If 8 dragons played this game, take an extra turn.
+    Uses turn count >= 8 as proxy for having played enough dragons. If the condition
+    is met, draws 3 cards and gives all friendly minions rush to represent the extra
+    turn's combat advantage."""
     if state.turn >= 8:
+        _draw_cards(player, 3)
         for m in player.board:
-            m.windfury = True
             if not m.rush:
                 m.rush = True
 
@@ -587,14 +685,13 @@ def _natalie_seline(engine, state, player, minion):
 
 
 def _tyrande(engine, state, player, minion):
-    """EDR_464 Tyrande: Your next 3 spells are cast twice. Double-casting spells doubles
-    their damage, healing, and card draw effects. Spell power +3 covers the damage
-    doubling; drawing 2 cards represents the value of double-cast utility spells."""
+    """EDR_464 Tyrande: Your next 3 spells are cast twice. Grants spell power +2 and
+    draws 2 cards as combined value representing the double-cast benefit."""
     if "SPELLPOWER" not in minion.mechanics:
         minion.mechanics.append("SPELLPOWER")
-    # Register spell power +3 in card_db text so _get_spell_power parses it
+    # Register spell power +2 in card_db text so _get_spell_power parses it
     db_entry = dict(engine.card_db.get(minion.card_id, {}))
-    db_entry["text"] = db_entry.get("text", "") + " 주문 공격력 +3"
+    db_entry["text"] = db_entry.get("text", "") + " 주문 공격력 +2"
     engine.card_db[minion.card_id] = db_entry
     _draw_cards(player, 2)
 
@@ -604,28 +701,40 @@ def _tyrande(engine, state, player, minion):
 # ---------------------------------------------------------------------------
 
 def _mirrex(engine, state, player, minion):
-    """DINO_407 Mirrex: summon a copy of random enemy minion."""
-    from src.simulator.game_state import MinionState, BOARD_LIMIT
+    """DINO_407 Mirrex: In hand, becomes a copy of the last opponent minion played.
+    On play, copies a random enemy minion's card_id stats but keeps 3/4 body."""
     opp = _get_opponent(state, player)
-    if opp.board and len(player.board) < BOARD_LIMIT:
+    if opp.board:
         src = random.choice(opp.board)
-        copy = MinionState(
-            card_id=src.card_id, name=src.name,
-            attack=src.attack, health=src.health, max_health=src.max_health,
-            mana_cost=src.mana_cost, taunt=src.taunt,
-            divine_shield=src.divine_shield, stealth=src.stealth,
-            windfury=src.windfury, lifesteal=src.lifesteal,
-            poisonous=src.poisonous, reborn=src.reborn,
-            rush=src.rush, charge=src.charge,
-            mechanics=list(src.mechanics), summoned_this_turn=True,
-        )
-        player.board.append(copy)
+        # Copy the card_id stats from the enemy minion but set to 3/4
+        minion.card_id = src.card_id
+        minion.name = src.name
+        minion.attack = 3
+        minion.health = 4
+        minion.max_health = 4
+        minion.mechanics = list(src.mechanics)
 
 
 def _opu_the_unseen(engine, state, player, minion):
-    """TLC_522 Opu the Unseen: deal 1 to all enemies, draw 1."""
-    _deal_damage_to_all_enemies(state, player, 1)
+    """TLC_522 Opu the Unseen: Battlecry + Combo + Deathrattle: Fan of Knives. Deals 1
+    damage to all enemy minions (not hero) and draws 1. If combo (cards played this turn),
+    repeats the effect. Sets up deathrattle text for death trigger."""
+    opp = _get_opponent(state, player)
+    # Fan of Knives: 1 damage to all enemy MINIONS only
+    for m in list(opp.board):
+        m.take_damage(1)
     player.draw_card()
+    # Combo: if another card was played this turn, do it again
+    if player.cards_played_this_turn > 0:
+        for m in list(opp.board):
+            m.take_damage(1)
+        player.draw_card()
+    # Set up deathrattle for death trigger
+    if "DEATHRATTLE" not in minion.mechanics:
+        minion.mechanics.append("DEATHRATTLE")
+    db_entry = dict(engine.card_db.get(minion.card_id, {}))
+    db_entry["text"] = "죽음의 메아리: 모든 적 하수인에게 피해를 1 줍니다"
+    engine.card_db[minion.card_id] = db_entry
 
 
 # ---------------------------------------------------------------------------
@@ -641,9 +750,8 @@ def _bralma_searstone(engine, state, player, minion):
 
 
 def _farseer_nobundo(engine, state, player, minion):
-    """GDB_447 Farseer Nobundo: Deathrattle: Open a Galactic Lens. The Lens absorbs the
-    power of the next spell you cast. Sets up deathrattle with parseable text for the
-    engine to handle the draw effect on death."""
+    """GDB_447 Farseer Nobundo: Deathrattle: Open a Galactic Lens. On play, sets up
+    the deathrattle mechanic with parseable text for the engine to handle on death."""
     if "DEATHRATTLE" not in minion.mechanics:
         minion.mechanics.append("DEATHRATTLE")
     db_entry = dict(engine.card_db.get(minion.card_id, {}))
@@ -652,26 +760,26 @@ def _farseer_nobundo(engine, state, player, minion):
 
 
 def _kragwa(engine, state, player, minion):
-    """CORE_TRL_345 Krag'wa: Battlecry: Return all spells you cast last turn to your hand.
-    Previous turn spell history is not tracked. Players typically cast 2 spells per turn
-    on average, so drawing 2 cards serves as the functional implementation."""
+    """CORE_TRL_345 Krag'wa: Battlecry: Return all spells cast last turn to hand.
+    Previous turn spell history is not tracked, so draws 2 cards as the functional
+    equivalent of returning spells."""
     _draw_cards(player, 2)
 
 
 def _shudderblock(engine, state, player, minion):
-    """TOY_501 Shudderblock: Your next Battlecry triggers 3 times, but cannot deal damage
-    to the enemy hero. The triple battlecry is extremely powerful. Grants +5 mana
-    (representing the tripled value) and draws 1 card for the extra resource generation."""
+    """TOY_501 Shudderblock: Your next Battlecry triggers 3 times. Grants +5 mana
+    covering the triple value, and draws 1 card for the extra resource generation."""
     player.mana += 5
     player.draw_card()
 
 
 def _murmur(engine, state, player, minion):
-    """GDB_448 Murmur: reduce all hand minion costs by 3."""
+    """GDB_448 Murmur: Battlecry minions cost 1 but die on play. Sets all minion cards
+    in hand that have BATTLECRY mechanic to cost 1."""
     for card_id in player.hand:
         card = engine.card_db.get(card_id, {})
-        if card.get("card_type") == "MINION":
-            card["mana_cost"] = max(0, card.get("mana_cost", 0) - 3)
+        if card.get("card_type") == "MINION" and "BATTLECRY" in card.get("mechanics", []):
+            card["mana_cost"] = 1
 
 
 # ---------------------------------------------------------------------------
@@ -679,16 +787,16 @@ def _murmur(engine, state, player, minion):
 # ---------------------------------------------------------------------------
 
 def _razidir(engine, state, player, minion):
-    """TLC_463 Razidir: discard 1, draw 1."""
+    """TLC_463 Razidir: Discard a random card. Dredge: from opponent instead.
+    Discards a random card from the player's hand."""
     if player.hand:
         player.hand.pop(random.randrange(len(player.hand)))
-    player.draw_card()
 
 
 def _game_master_nemsy(engine, state, player, minion):
     """TOY_524 Game Master Nemsy: Battlecry: Draw a Demon. Deathrattle: Swap places with
-    that Demon (resummon it where Nemsy died). Searches deck for a Demon specifically
-    and draws it. Sets up deathrattle for the swap effect."""
+    that Demon. Searches deck for the first card with DEMON race and draws it specifically.
+    Sets up deathrattle for the swap effect."""
     # Search deck for a demon and draw it specifically
     demon_idx = -1
     for i, card_id in enumerate(player.deck):
@@ -726,8 +834,19 @@ def _party_planner_vona(engine, state, player, minion):
 
 
 def _agamaggan(engine, state, player, minion):
-    """EDR_489 Agamaggan: gain 5 extra mana."""
-    player.mana += 5
+    """EDR_489 Agamaggan: Next card costs enemy HP instead of mana. Sets the highest cost
+    card in hand to cost 0 and deals that original cost as damage to the enemy hero."""
+    opp = _get_opponent(state, player)
+    best_card = None
+    best_cost = -1
+    for card_id in player.hand:
+        card = engine.card_db.get(card_id, {})
+        if card and card.get("mana_cost", 0) > best_cost:
+            best_cost = card.get("mana_cost", 0)
+            best_card = card
+    if best_card and best_cost > 0:
+        best_card["mana_cost"] = 0
+        opp.hero.take_damage(best_cost)
 
 
 # ---------------------------------------------------------------------------
