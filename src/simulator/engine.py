@@ -630,6 +630,68 @@ class GameEngine:
             elif eff.effect_type == "armor":
                 player.hero.armor += eff.value
 
+            elif eff.effect_type == "grant_keyword":
+                keyword = eff.target  # e.g., "RUSH", "TAUNT"
+                if keyword == "RUSH":
+                    minion.rush = True
+                elif keyword == "TAUNT":
+                    minion.taunt = True
+                elif keyword == "WINDFURY":
+                    minion.windfury = True
+                elif keyword == "DIVINE_SHIELD":
+                    minion.divine_shield = True
+                elif keyword == "STEALTH":
+                    minion.stealth = True
+                elif keyword == "LIFESTEAL":
+                    minion.lifesteal = True
+                elif keyword == "POISONOUS":
+                    minion.poisonous = True
+                elif keyword == "REBORN":
+                    minion.reborn = True
+                if keyword not in minion.mechanics:
+                    minion.mechanics.append(keyword)
+
+            elif eff.effect_type == "cost_reduction":
+                for card_id in player.hand:
+                    cd = self.card_db.get(card_id, {})
+                    if cd:
+                        cd["mana_cost"] = max(0, cd.get("mana_cost", 0) - eff.value)
+
+            elif eff.effect_type == "set_cost":
+                for card_id in player.hand:
+                    cd = self.card_db.get(card_id, {})
+                    if cd:
+                        cd["mana_cost"] = eff.value
+
+            elif eff.effect_type == "random_summon":
+                if not player.board_full:
+                    candidates = [c for c in self.card_db.values()
+                                  if c.get("card_type") == "MINION"
+                                  and not c.get("card_id", "").startswith("herald_")
+                                  and not c.get("card_id", "").endswith("_mini")]
+                    if eff.value > 0:
+                        candidates = [c for c in candidates if c.get("mana_cost") == eff.value]
+                    if candidates:
+                        pick = random.choice(candidates)
+                        player.board.append(MinionState(
+                            card_id=pick["card_id"], name=pick.get("name", ""),
+                            attack=pick.get("attack", 1), health=pick.get("health", 1),
+                            max_health=pick.get("health", 1), mana_cost=pick.get("mana_cost", 0),
+                            summoned_this_turn=True,
+                        ))
+
+            elif eff.effect_type == "random_generate":
+                if len(player.hand) < 10:
+                    candidates = [c for c in self.card_db.values()
+                                  if c.get("card_type") in ("MINION", "SPELL")
+                                  and c.get("card_id", "").upper() != "GAME_005"]
+                    if candidates:
+                        pick = random.choice(candidates)
+                        player.hand.append(pick["card_id"])
+
+            elif eff.effect_type == "discover":
+                self._discover(state, player)
+
     def play_spell(self, state: GameState, card_data: dict, target=None):
         player = state.current_player
         opponent = state.opponent

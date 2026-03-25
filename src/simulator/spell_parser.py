@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class SpellEffect:
-    effect_type: str  # "damage", "aoe_damage", "heal", "draw", "buff", "destroy", "summon", "armor", "freeze_all"
+    effect_type: str  # "damage", "aoe_damage", "heal", "draw", "buff", "destroy", "summon", "armor", "freeze_all", "grant_keyword", "cost_reduction", "set_cost", "random_summon", "random_generate", "discover"
     value: int = 0
     value2: int = 0  # for buff: attack bonus, value = health bonus
     target: str = "auto"  # "enemy_hero", "enemy_minion", "all_enemy_minions", "all_minions", "friendly_minion", "self_hero", "random_enemy"
@@ -22,6 +22,59 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
     text = re.sub(r'\$(\d+)', r'\1', text)  # $N -> N
     text = re.sub(r'#(\d+)', r'\1', text)  # #N -> N
     text = text.replace('[x]', '')
+
+    # Grant keyword: "속공을 부여/얻습니다"
+    keyword_map = {
+        '속공': 'RUSH', '돌진': 'RUSH', '도발': 'TAUNT', '질풍': 'WINDFURY',
+        '은신': 'STEALTH', '천상의 보호막': 'DIVINE_SHIELD',
+        '생명력 흡수': 'LIFESTEAL', '독성': 'POISONOUS', '환생': 'REBORN',
+    }
+    for kr_name, en_name in keyword_map.items():
+        if kr_name in text and ('부여' in text or '얻습니다' in text):
+            effects.append(SpellEffect("grant_keyword", target="friendly_minion"))
+            # Store keyword name in target field
+            effects[-1].target = en_name
+            return effects
+
+    # Cost reduction: "비용이 (N) 감소"
+    m = re.search(r'비용이?\s*\((\d+)\)\s*감소', text)
+    if m:
+        effects.append(SpellEffect("cost_reduction", int(m.group(1)), target="hand"))
+        return effects
+
+    # Set cost: "비용이 (N)이 됩니다"
+    m = re.search(r'비용이?\s*\((\d+)\)', text)
+    if m and '됩니다' in text:
+        effects.append(SpellEffect("set_cost", int(m.group(1)), target="hand"))
+        return effects
+
+    # Random summon: "무작위 하수인을 소환" or "무작위 N코스트 하수인 소환"
+    if '무작위' in text and '소환' in text:
+        m = re.search(r'무작위\s*(\d+)코스트', text)
+        cost = int(m.group(1)) if m else 0
+        effects.append(SpellEffect("random_summon", cost, target="friendly_board"))
+        return effects
+
+    # Random generate: "무작위 X를 얻습니다"
+    if '무작위' in text and '얻습니다' in text:
+        effects.append(SpellEffect("random_generate", 1, target="hand"))
+        return effects
+
+    # Discover from text
+    if '발견' in text:
+        effects.append(SpellEffect("discover", target="hand"))
+        return effects
+
+    # Copy: "복사합니다"
+    if '복사' in text:
+        effects.append(SpellEffect("draw", 1))
+        return effects
+
+    # Attack buff only: "공격력을 +N" without health
+    m = re.search(r'공격력을?\s*\+(\d+)', text)
+    if m and '+' in text and '/' not in text:
+        effects.append(SpellEffect("buff", int(m.group(1)), 0, target="friendly_minion"))
+        return effects
 
     # AOE damage to ALL minions: "모든 하수인에게 피해를 N 줍니다"
     m = re.search(r'모든\s*하수인에게\s*피해를\s*(\d+)\s*줍니다', text)
