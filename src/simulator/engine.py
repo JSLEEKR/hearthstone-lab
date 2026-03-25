@@ -166,6 +166,42 @@ class GameEngine:
         state.switch_turn()
         self.apply_auras(state)
 
+    def _fire_board_triggers(self, state: GameState, trigger_type: str, **ctx):
+        """Fire ongoing trigger effects for board minions matching trigger_type."""
+        player = state.current_player
+
+        TRIGGER_PATTERNS = {
+            "on_spell_cast": [r"주문을 시전[할한] (?:때마다|후에)"],
+            "on_attack": [r"이 하수인이 공격[할한] (?:때마다|후에)", r"공격한 후에"],
+            "on_hero_power": [r"영웅 능력을 사용[할한] (?:때마다|후에)"],
+            "on_minion_death": [r"하수인이 (?:죽은|사망[할한]) (?:때마다|후에)"],
+            "on_play_minion": [r"하수인을 (?:낼|낸) (?:때마다|후에)"],
+            "on_draw": [r"카드를 (?:뽑을|뽑은) (?:때마다|후에)"],
+        }
+
+        patterns = TRIGGER_PATTERNS.get(trigger_type, [])
+        if not patterns:
+            return
+
+        for m in list(player.board):
+            if m.is_dead:
+                continue
+            text = self.card_db.get(m.card_id, {}).get("text", "") or ""
+            clean = re.sub(r'<[^>]+>', '', text).replace('[x]', '').replace('\n', ' ')
+
+            for pattern in patterns:
+                match = re.search(pattern, clean)
+                if match:
+                    # Extract the effect after the trigger pattern
+                    effect_start = match.end()
+                    effect_text = clean[effect_start:].strip().rstrip('.')
+                    if effect_text:
+                        from src.simulator.spell_parser import parse_spell_effects
+                        effects = parse_spell_effects(effect_text)
+                        if effects:
+                            self._apply_battlecry_effects(state, player, m, effects)
+                    break
+
     def _fire_end_of_turn(self, state: GameState):
         """Fire 'At the end of your turn' effects for all friendly minions."""
         player = state.current_player
@@ -256,6 +292,10 @@ class GameEngine:
                         self._apply_battlecry_effects(state, player, attacker, ok_effects)
                         break
 
+        # Fire ongoing board triggers for attack
+        if state is not None:
+            self._fire_board_triggers(state, "on_attack")
+
     def attack_hero(self, attacker: MinionState, hero: HeroState,
                     state: GameState | None = None):
         # Check secrets before attack resolves
@@ -272,6 +312,10 @@ class GameEngine:
         if attacker.lifesteal and damage_dealt > 0 and state is not None:
             owner_hero = state.current_player.hero
             owner_hero.health = min(owner_hero.health + damage_dealt, owner_hero.max_health)
+
+        # Fire ongoing board triggers for attack
+        if state is not None:
+            self._fire_board_triggers(state, "on_attack")
 
     def hero_attack_minion(self, state: GameState, target: MinionState):
         player = state.current_player
@@ -333,8 +377,11 @@ class GameEngine:
                 ))
                 player.starship_parts = 0
 
+        any_died = False
         for player in (state.player1, state.player2):
             dead_count = sum(1 for m in player.board if m.is_dead)
+            if dead_count > 0:
+                any_died = True
             player.friendly_deaths_this_game += dead_count
             new_board: list[MinionState] = []
             for m in player.board:
@@ -357,6 +404,10 @@ class GameEngine:
                     new_board.append(m)
             player.board = new_board
         self.apply_auras(state)
+
+        # Fire ongoing board triggers for minion death
+        if any_died:
+            self._fire_board_triggers(state, "on_minion_death")
 
     def play_minion(self, state: GameState, card_data: dict,
                     hand_position: int | None = None) -> MinionState | None:
@@ -579,6 +630,9 @@ class GameEngine:
 
         # Check opponent secrets on minion play
         self.check_secrets(state, "play_minion", minion=minion)
+
+        # Fire ongoing board triggers for playing a minion
+        self._fire_board_triggers(state, "on_play_minion")
 
         self.apply_auras(state)
         return minion
@@ -897,6 +951,9 @@ class GameEngine:
         card_cost = card_data.get("mana_cost", 0)
         self._check_corrupt_hand(player, card_cost)
 
+        # Fire ongoing board triggers for spell cast
+        self._fire_board_triggers(state, "on_spell_cast")
+
         # Trigger spellburst on friendly minions
         self._check_spellburst(state)
         self.remove_dead_minions(state)
@@ -1075,6 +1132,9 @@ class GameEngine:
                 insp_effects = parse_inspire_effects(
                     self.card_db.get(m.card_id, {}).get("text", ""))
                 self._apply_battlecry_effects(state, player, m, insp_effects)
+
+        # Fire ongoing board triggers for hero power use
+        self._fire_board_triggers(state, "on_hero_power")
 
     def _do_dredge(self, player: PlayerState):
         """DREDGE: look at bottom 3 cards of deck, put the best (highest mana cost) on top."""
