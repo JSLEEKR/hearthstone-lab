@@ -467,3 +467,60 @@ def run_simulation(
     return results
 
 
+@router.post("/tournament/run")
+def run_tournament(
+    request: Request,
+    deck_ids: str,
+    matches_per_pair: int = 20,
+    ai_level: str = "rule",
+    db: Session = Depends(get_db),
+):
+    from src.simulator.tournament import Tournament
+    from src.simulator.ai import RuleBasedAI, ScoreBasedAI, MCTSAI
+
+    ai_map = {"rule": RuleBasedAI, "score": ScoreBasedAI, "mcts": MCTSAI(iterations=50)}
+    ai_class = ai_map.get(ai_level, RuleBasedAI)
+
+    ids = [int(x.strip()) for x in deck_ids.split(",") if x.strip()]
+    if len(ids) < 2:
+        return {"success": False, "error": "Need at least 2 decks"}
+
+    from src.db.tables import DeckCard, Card
+    decks_data = {}
+    combined_card_db = {}
+
+    for deck_id in ids:
+        deck = db.query(Deck).filter_by(id=deck_id).first()
+        if not deck:
+            return {"success": False, "error": f"Deck {deck_id} not found"}
+
+        rows = (
+            db.query(DeckCard, Card)
+            .join(Card, DeckCard.card_id == Card.id)
+            .filter(DeckCard.deck_id == deck_id).all()
+        )
+        deck_list = []
+        for dc, card in rows:
+            combined_card_db[card.card_id] = {
+                "card_id": card.card_id, "card_type": card.card_type,
+                "mana_cost": card.mana_cost, "attack": card.attack or 0,
+                "health": card.health or 0, "mechanics": card.mechanics or [],
+                "name": card.name, "text": card.text or "",
+            }
+            for _ in range(dc.count):
+                deck_list.append(card.card_id)
+        decks_data[deck.name] = {"hero": deck.hero_class, "cards": deck_list}
+
+    t = Tournament(decks_data, combined_card_db,
+                   matches_per_pair=min(matches_per_pair, 100),
+                   ai_class=ai_class)
+    result = t.run()
+    return {
+        "success": True,
+        "rankings": result.rankings,
+        "matchups": result.matchups,
+        "matrix": result.matrix,
+        "summary": result.summary(),
+    }
+
+

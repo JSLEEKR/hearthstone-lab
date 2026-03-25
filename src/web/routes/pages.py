@@ -71,3 +71,12 @@ def simulation_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "simulation.html", _ctx(
         request, decks=decks,
     ))
+
+
+@router.get("/tournament")
+def tournament_page(request: Request, db: Session = Depends(get_db)):
+    from src.db.tables import Deck
+    decks = db.query(Deck).order_by(Deck.created_at.desc()).limit(50).all()
+    return templates.TemplateResponse(request, "tournament.html", _ctx(
+        request, decks=decks,
+    ))

@@ -97,6 +97,22 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "deck.copy_code": {"en": "Copy Deck Code", "ko": "덱 코드 복사"},
     "deck.copied": {"en": "Copied!", "ko": "복사됨!"},
     "deck.card_count": {"en": "Cards", "ko": "카드 수"},
+
+    # Tournament
+    "tournament.title": {"en": "Tournament", "ko": "토너먼트"},
+    "tournament.select_decks": {"en": "Select Decks (2-8)", "ko": "덱 선택 (2-8개)"},
+    "tournament.ai_level": {"en": "AI Level", "ko": "AI 레벨"},
+    "tournament.matches_per_pair": {"en": "Matches per pair", "ko": "매치업당 대전 수"},
+    "tournament.run": {"en": "Run Tournament", "ko": "토너먼트 실행"},
+    "tournament.running": {"en": "Running...", "ko": "실행 중..."},
+    "tournament.rankings": {"en": "Rankings", "ko": "순위"},
+    "tournament.matchup_matrix": {"en": "Matchup Matrix", "ko": "매치업 매트릭스"},
+    "tournament.deck": {"en": "Deck", "ko": "덱"},
+    "tournament.winrate": {"en": "Win Rate", "ko": "승률"},
+    "tournament.wins": {"en": "W", "ko": "승"},
+    "tournament.losses": {"en": "L", "ko": "패"},
+    "tournament.draws": {"en": "D", "ko": "무"},
+    "tournament.rank": {"en": "Rank", "ko": "순위"},
 }
 
 # Set names (English)

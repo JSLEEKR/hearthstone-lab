@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}{{ t['tournament.title'] }} - Hearthstone Lab{% endblock %}
+{% block content %}
+<h1>{{ t['tournament.title'] }}</h1>
+
+<div x-data="tournamentRunner()">
+    <div class="filter-bar" style="flex-wrap:wrap;gap:1rem;">
+        <div style="flex:1;min-width:300px;">
+            <h3 style="margin-bottom:0.5rem;">{{ t['tournament.select_decks'] }}</h3>
+            <div style="max-height:200px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--border-wood);border-radius:4px;padding:0.5rem;">
+                {% for deck in decks %}
+                <label style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;cursor:pointer;">
+                    <input type="checkbox" :value="'{{ deck.id }}'" x-model="selectedDecks">
+                    <span>{{ deck.name }} ({{ deck.hero_class }})</span>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:0.75rem;">
+            <div>
+                <label>{{ t['tournament.ai_level'] }}</label>
+                <select x-model="aiLevel" class="sidebar-input">
+                    <option value="rule">Rule-Based (Fast)</option>
+                    <option value="score">Score-Based (Smart)</option>
+                    <option value="mcts">MCTS (Best)</option>
+                </select>
+            </div>
+            <div>
+                <label>{{ t['tournament.matches_per_pair'] }}</label>
+                <select x-model="matchesPerPair" class="sidebar-input">
+                    <option value="10">10</option>
+                    <option value="20" selected>20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" @click="runTournament()" :disabled="running || selectedDecks.length < 2">
+                <span x-show="!running">{{ t['tournament.run'] }}</span>
+                <span x-show="running">{{ t['tournament.running'] }}</span>
+            </button>
+        </div>
+    </div>
+
+    <template x-if="result">
+        <div style="margin-top:1.5rem;">
+            <h2>{{ t['tournament.rankings'] }}</h2>
+            <table class="tournament-table">
+                <thead>
+                    <tr>
+                        <th>{{ t['tournament.rank'] }}</th>
+                        <th>{{ t['tournament.deck'] }}</th>
+                        <th>{{ t['tournament.winrate'] }}</th>
+                        <th>{{ t['tournament.wins'] }}</th>
+                        <th>{{ t['tournament.losses'] }}</th>
+                        <th>{{ t['tournament.draws'] }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="(r, idx) in result.rankings" :key="r.deck">
+                        <tr>
+                            <td x-text="idx + 1"></td>
+                            <td x-text="r.deck" style="font-weight:600;"></td>
+                            <td>
+                                <span :class="r.overall_winrate >= 55 ? 'stat-high' : r.overall_winrate >= 50 ? 'stat-mid' : 'stat-low'"
+                                      x-text="r.overall_winrate.toFixed(1) + '%'" style="font-weight:bold;"></span>
+                            </td>
+                            <td x-text="r.wins" style="color:#4caf50;"></td>
+                            <td x-text="r.losses" style="color:#e57373;"></td>
+                            <td x-text="r.draws"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+
+            <h2 style="margin-top:1.5rem;">{{ t['tournament.matchup_matrix'] }}</h2>
+            <div style="overflow-x:auto;">
+                <table class="tournament-table matrix-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <template x-for="r in result.rankings" :key="'h_'+r.deck">
+                                <th x-text="r.deck" style="font-size:0.8rem;"></th>
+                            </template>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="row in result.rankings" :key="'r_'+row.deck">
+                            <tr>
+                                <td x-text="row.deck" style="font-weight:600;font-size:0.85rem;"></td>
+                                <template x-for="col in result.rankings" :key="'c_'+row.deck+'_'+col.deck">
+                                    <td :style="row.deck === col.deck ? 'background:var(--bg-primary);' : cellColor(result.matrix[row.deck] && result.matrix[row.deck][col.deck])">
+                                        <span x-text="row.deck === col.deck ? '—' : ((result.matrix[row.deck] && result.matrix[row.deck][col.deck]) || 0).toFixed(1) + '%'"></span>
+                                    </td>
+                                </template>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </template>
+</div>
+
+<style>
+.tournament-table { width:100%; border-collapse:collapse; margin-top:0.75rem; }
+.tournament-table th, .tournament-table td {
+    padding:0.5rem 0.75rem; text-align:center;
+    border:1px solid var(--border-wood);
+}
+.tournament-table th { background:var(--bg-secondary); color:var(--gold); font-size:0.85rem; }
+.tournament-table td { background:var(--bg-card); }
+.stat-high { color: #4caf50; }
+.stat-mid { color: var(--gold); }
+.stat-low { color: #e57373; }
+</style>
+
+<script>
+function tournamentRunner() {
+    return {
+        selectedDecks: [],
+        aiLevel: 'rule',
+        matchesPerPair: '20',
+        running: false,
+        result: null,
+
+        cellColor(wr) {
+            if (wr === undefined || wr === null) return '';
+            if (wr >= 60) return 'background:rgba(76,175,80,0.3);';
+            if (wr >= 55) return 'background:rgba(76,175,80,0.15);';
+            if (wr >= 45) return '';
+            if (wr >= 40) return 'background:rgba(229,115,115,0.15);';
+            return 'background:rgba(229,115,115,0.3);';
+        },
+
+        async runTournament() {
+            if (this.selectedDecks.length < 2) return;
+            this.running = true;
+            this.result = null;
+            try {
+                const params = new URLSearchParams({
+                    deck_ids: this.selectedDecks.join(','),
+                    matches_per_pair: this.matchesPerPair,
+                    ai_level: this.aiLevel,
+                });
+                const res = await fetch('/api/tournament/run?' + params, {method: 'POST'});
+                this.result = await res.json();
+            } finally {
+                this.running = false;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}
