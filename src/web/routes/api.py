@@ -82,15 +82,24 @@ SET_NAME_KO = {
 import re
 
 def _clean_card_text(text: str) -> str:
-    """Convert HS markup to readable text. Strip HTML tags and $ cost markers."""
+    """Convert HS markup to readable text."""
     if not text:
         return ""
+    # Multiple text variants separated by @ (quest stages etc.) - keep first
+    if '@' in text:
+        text = text.split('@')[0]
     # $1 -> 1 (damage/heal numbers)
     text = re.sub(r'\$(\d+)', r'\1', text)
+    # {0}|1(을,를) -> (conditional Korean particles) - simplify
+    text = re.sub(r'\{0\}\|1\(([^,)]+),([^)]+)\)', r'\1', text)
+    # {0} placeholders (progress counters etc.)
+    text = re.sub(r'\{\d+\}', '', text)
     # Strip HTML tags like <b>, </b>, <i>, </i>
     text = re.sub(r'<[^>]+>', '', text)
     # [x] formatting hint
     text = text.replace('[x]', '')
+    # Clean up extra whitespace
+    text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 
