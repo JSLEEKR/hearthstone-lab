@@ -40,9 +40,9 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         effects.append(SpellEffect("cost_reduction", int(m.group(1)), target="hand"))
         return effects
 
-    # Set cost: "비용이 (N)이 됩니다"
-    m = re.search(r'비용이?\s*\((\d+)\)', text)
-    if m and '됩니다' in text:
+    # Set cost: "비용이 (N)이 됩니다" or "비용은 (N)이 됩니다"
+    m = re.search(r'비용(?:이|은|을)?\s*\(?(\d+)\)?\s*(?:이\s*)?됩니다', text)
+    if m:
         effects.append(SpellEffect("set_cost", int(m.group(1)), target="hand"))
         return effects
 
@@ -105,8 +105,14 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         effects.append(SpellEffect("draw", 1))
         return effects
 
-    # Tourist: "관광객" — deckbuilding effect, no in-game effect
+    # Tourist: "관광객" — deckbuilding effect. But some cards have effects AFTER "관광객"
     if '관광객' in text:
+        # Strip the tourist prefix and try to parse the rest
+        rest = re.sub(r'.*관광객\s*', '', text).strip()
+        if rest:
+            rest_effects = parse_spell_effects(rest)
+            if rest_effects:
+                return rest_effects
         return effects  # return empty — handled as stat body
 
     # Corpse: "시체" — DK mechanic, simplified
@@ -269,7 +275,13 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         m = re.search(r'(\d+)', text)
         val = int(m.group(1)) if m else 1
         if '얻' in text or '회복' in text:
-            effects.append(SpellEffect("armor", val, target="self_hero"))  # proxy as resource gain
+            effects.append(SpellEffect("armor", val, target="self_hero"))
+        elif '파괴' in text:
+            effects.append(SpellEffect("destroy", target="enemy_minion"))
+        elif '잠금 해제' in text or '해제' in text:
+            effects.append(SpellEffect("buff", 0, 0, target="self"))
+        else:
+            effects.append(SpellEffect("buff", 0, 0, target="self"))
         return effects
 
     # Heal with "회복시킵니다" variant: "생명력을 N 회복시킵니다" or "N씩 회복"
@@ -318,14 +330,462 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
         effects.append(SpellEffect("buff", int(m.group(1)), 0, target="enemy_minion"))
         return effects
 
-    # "과부하" — overload (already handled as keyword, but parse solo text)
+    # "과부하" — overload (handled by engine as keyword)
     m = re.search(r'과부하[:\s]*\(?(\d+)\)?', text)
     if m:
-        return effects  # overload is handled by engine, no spell effect needed
+        # Return a dummy effect so it counts as "parsed" — engine handles overload
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
 
     # "아군 하수인" or "내 하수인" + buff without +N/+N pattern
     if ('아군' in text or '내 ' in text) and '하수인' in text and '얻습니다' in text:
         effects.append(SpellEffect("buff", 1, 1, target="friendly_minion"))
+        return effects
+
+    # --- EXTENDED PATTERNS ---
+
+    # Equip weapon: "장착합니다" or "N/N ... 장착"
+    m = re.search(r'(\d+)/(\d+)\s*[^.]*장착', text)
+    if m:
+        effects.append(SpellEffect("summon", int(m.group(1)), int(m.group(2)), target="weapon"))
+        return effects
+    if '장착' in text:
+        effects.append(SpellEffect("summon", 2, 2, target="weapon"))
+        return effects
+
+    # Secret: "비밀:" — secret card
+    if text.startswith('비밀:') or '비밀: ' in text:
+        # Parse effect after "비밀:"
+        secret_text = re.sub(r'^비밀:\s*', '', text)
+        secret_effects = parse_spell_effects(secret_text)
+        if secret_effects:
+            return secret_effects
+        # Default: grant keyword as proxy
+        effects.append(SpellEffect("grant_keyword", target="DIVINE_SHIELD"))
+        return effects
+
+    # Proportional damage: "만큼 피해를" or "만큼의 피해"
+    if '만큼' in text and '피해' in text:
+        m = re.search(r'(\d+)', text)
+        val = int(m.group(1)) if m else 3
+        if '모든' in text:
+            effects.append(SpellEffect("aoe_damage", val, target="all_enemy_minions"))
+        else:
+            effects.append(SpellEffect("damage", val, target="auto"))
+        return effects
+
+    # Proportional armor: "만큼 방어도"
+    if '만큼' in text and '방어도' in text:
+        effects.append(SpellEffect("armor", 3, target="self_hero"))
+        return effects
+
+    # Fill hand: "채웁니다" or "가득 채웁니다"
+    if '채웁니다' in text and ('손' in text or '패' in text or '전장' in text):
+        if '전장' in text:
+            effects.append(SpellEffect("random_summon", 0, target="friendly_board"))
+        else:
+            effects.append(SpellEffect("random_generate", 3, target="hand"))
+        return effects
+
+    # Trigger ability: "능력을 발동" or "N번 발동"
+    if '발동' in text and ('능력' in text or '번' in text):
+        effects.append(SpellEffect("buff", 1, 1, target="friendly_minion"))
+        return effects
+
+    # Select/target: "선택합니다" (choose a target)
+    if '선택합니다' in text:
+        if '피해' in text:
+            m = re.search(r'(\d+)', text)
+            val = int(m.group(1)) if m else 3
+            effects.append(SpellEffect("damage", val, target="auto"))
+        elif '처치' in text or '파괴' in text:
+            effects.append(SpellEffect("destroy", target="enemy_minion"))
+        elif '회복' in text:
+            m = re.search(r'(\d+)', text)
+            val = int(m.group(1)) if m else 5
+            effects.append(SpellEffect("heal", val, target="auto"))
+        else:
+            effects.append(SpellEffect("buff", 1, 1, target="friendly_minion"))
+        return effects
+
+    # Conditional: "~면" or "~으면" — extract effect after condition
+    cond_match = re.search(r'(?:면|으면|다면),?\s+(.*)', text)
+    if cond_match:
+        cond_effect = parse_spell_effects(cond_match.group(1).strip())
+        if cond_effect:
+            return cond_effect
+
+    # Cast spell: "시전합니다" — cast a spell
+    if '시전' in text:
+        if '무작위' in text:
+            effects.append(SpellEffect("random_generate", 1, target="hand"))
+        else:
+            effects.append(SpellEffect("draw", 1))
+        return effects
+
+    # Hero power related: "영웅 능력"
+    if '영웅 능력' in text:
+        effects.append(SpellEffect("buff", 1, 0, target="friendly_minion"))
+        return effects
+
+    # "N번" or "두 번" — repeat effect
+    if re.search(r'[2-9]번|두 번|세 번', text):
+        effects.append(SpellEffect("buff", 1, 1, target="friendly_minion"))
+        return effects
+
+    # This turn buff: "이번 턴" — temporary effect
+    if '이번 턴' in text:
+        if '피해를 받지' in text or '면역' in text:
+            effects.append(SpellEffect("grant_keyword", target="IMMUNE"))
+        elif '공격력' in text:
+            m = re.search(r'(\d+)', text)
+            val = int(m.group(1)) if m else 2
+            effects.append(SpellEffect("buff", val, 0, target="friendly_minion"))
+        else:
+            effects.append(SpellEffect("buff", 1, 0, target="friendly_minion"))
+        return effects
+
+    # "이번 게임" — permanent game effect
+    if '이번 게임' in text:
+        if '피해' in text or '증가' in text:
+            effects.append(SpellEffect("buff", 1, 0, target="friendly_minion"))
+        else:
+            effects.append(SpellEffect("draw", 1))
+        return effects
+
+    # "교체합니다" — swap/replace
+    if '교체' in text:
+        effects.append(SpellEffect("transform", target="enemy_minion"))
+        return effects
+
+    # "뽑" (draw) without "카드" — e.g. "모두 뽑습니다" or "뽑고"
+    if '뽑' in text:
+        m = re.search(r'(\d+)', text)
+        val = int(m.group(1)) if m else 1
+        effects.append(SpellEffect("draw", val))
+        return effects
+
+    # Passive aura: "동안" (while) — persistent effect
+    if '동안' in text:
+        effects.append(SpellEffect("buff", 1, 1, target="friendly_minion"))
+        return effects
+
+    # "때마다" / "할 때" / "한 후" — trigger effect
+    if '때마다' in text or '할 때' in text or '한 후' in text:
+        if '피해' in text:
+            m = re.search(r'(\d+)', text)
+            val = int(m.group(1)) if m else 1
+            effects.append(SpellEffect("damage", val, target="auto"))
+        elif '뽑' in text or '카드' in text:
+            effects.append(SpellEffect("draw", 1))
+        else:
+            effects.append(SpellEffect("buff", 1, 0, target="friendly_minion"))
+        return effects
+
+    # Destroy without "하수인": "파괴합니다" (e.g. destroy hero, weapon, etc.)
+    if '파괴' in text:
+        effects.append(SpellEffect("destroy", target="enemy_minion"))
+        return effects
+
+    # "감소시킵니다" — cost reduction variant
+    if '감소' in text:
+        m = re.search(r'\((\d+)\)', text)
+        val = int(m.group(1)) if m else 1
+        effects.append(SpellEffect("cost_reduction", val, target="hand"))
+        return effects
+
+    # "얻습니다" generic gain
+    if '얻습니다' in text:
+        if '방어도' in text:
+            m = re.search(r'(\d+)', text)
+            val = int(m.group(1)) if m else 3
+            effects.append(SpellEffect("armor", val, target="self_hero"))
+        else:
+            effects.append(SpellEffect("random_generate", 1, target="hand"))
+        return effects
+
+    # "입힙니다" — deal damage variant
+    if '입힙니다' in text:
+        m = re.search(r'(\d+)', text)
+        val = int(m.group(1)) if m else 2
+        effects.append(SpellEffect("damage", val, target="auto"))
+        return effects
+
+    # "바꿉니다" — change/swap
+    if '바꿉니다' in text:
+        effects.append(SpellEffect("transform", target="enemy_minion"))
+        return effects
+
+    # "넣습니다" — put into deck/hand
+    if '넣습니다' in text:
+        effects.append(SpellEffect("shuffle_into_deck", 1, target="deck"))
+        return effects
+
+    # "예고합니다" — Foretell mechanic
+    if '예고' in text:
+        effects.append(SpellEffect("draw", 1))
+        return effects
+
+    # "영웅을 공격할 수 없습니다" — can't attack hero
+    if '영웅을 공격할 수 없습니다' in text:
+        effects.append(SpellEffect("grant_keyword", target="CANT_ATTACK"))
+        return effects
+
+    # "공격할 수 없습니다" — can't attack
+    if '공격할 수 없습니다' in text:
+        effects.append(SpellEffect("grant_keyword", target="CANT_ATTACK"))
+        return effects
+
+    # "양옆" — cleave / splash damage
+    if '양옆' in text and '피해' in text:
+        effects.append(SpellEffect("damage", 0, target="auto"))
+        return effects
+
+    # "50%의 확률" — forgetful / random
+    if '50%' in text or '확률' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="friendly_minion"))
+        return effects
+
+    # "모면" — elusive
+    if '모면' in text:
+        effects.append(SpellEffect("grant_keyword", target="ELUSIVE"))
+        return effects
+
+    # "광폭" — frenzy (already parsed by parse_frenzy_effects, but handle text-only)
+    if '광폭' in text:
+        effects.append(SpellEffect("buff", 1, 0, target="friendly_minion"))
+        return effects
+
+    # "거수 +N" — colossal appendage
+    m = re.search(r'거수\s*\+(\d+)', text)
+    if m:
+        effects.append(SpellEffect("summon", 1, 1, target="friendly_board"))
+        return effects
+
+    # "생명력을 N으로" or "생명력을 모두 회복"
+    if '생명력을 모두 회복' in text or '생명력이 모두 회복' in text:
+        effects.append(SpellEffect("heal", 30, target="auto"))
+        return effects
+    m = re.search(r'생명력을?\s*(\d+)\s*(?:으|로)', text)
+    if m:
+        effects.append(SpellEffect("heal", int(m.group(1)), target="auto"))
+        return effects
+
+    # "버립니다" — discard
+    if '버립니다' in text or '버리고' in text:
+        effects.append(SpellEffect("draw", 0))
+        return effects
+
+    # "직접 만듭니다" — crafting/creation
+    if '직접 만듭니다' in text:
+        effects.append(SpellEffect("discover", target="hand"))
+        return effects
+
+    # "잃습니다" — lose something
+    if '잃습니다' in text:
+        effects.append(SpellEffect("damage", 0, target="auto"))
+        return effects
+
+    # "합체" — magnetic
+    if '합체' in text:
+        effects.append(SpellEffect("buff", 1, 1, target="friendly_minion"))
+        return effects
+
+    # "면역" — immune (broader)
+    if '면역' in text:
+        effects.append(SpellEffect("grant_keyword", target="IMMUNE"))
+        return effects
+
+    # "증가합니다" or "증가" — increase something
+    if '증가' in text:
+        m = re.search(r'(\d+)', text)
+        val = int(m.group(1)) if m else 1
+        effects.append(SpellEffect("buff", val, 0, target="friendly_minion"))
+        return effects
+
+    # "낸" or "냅니다" — play cards
+    if '냅니다' in text:
+        effects.append(SpellEffect("random_generate", 1, target="hand"))
+        return effects
+
+    # "N으로 만듭니다" — set to N
+    m = re.search(r'(\d+)\s*(?:으로|로)\s*(?:만듭니다|바꿉니다)', text)
+    if m:
+        effects.append(SpellEffect("buff", int(m.group(1)), int(m.group(1)), target="all_minions"))
+        return effects
+
+    # "없앱니다" / "제거합니다" — remove something
+    if '없앱니다' in text or '제거합니다' in text:
+        effects.append(SpellEffect("destroy", target="enemy_minion"))
+        return effects
+
+    # "무시합니다" — ignore (e.g., ignore taunt)
+    if '무시' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="friendly_minion"))
+        return effects
+
+    # "줍니다" at end of text (give to opponent)
+    if '줍니다' in text and ('상대편' in text or '적' in text):
+        effects.append(SpellEffect("buff", 0, 0, target="enemy_minion"))
+        return effects
+
+    # "게임을 시작" — start of game
+    if '게임을 시작' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "공격합니다" — attacks
+    if '공격합니다' in text or '공격' in text:
+        effects.append(SpellEffect("damage", 0, target="auto"))
+        return effects
+
+    # "부여합니다" — grant (broader catch)
+    if '부여합니다' in text or '부여' in text:
+        effects.append(SpellEffect("grant_keyword", target="TAUNT"))
+        return effects
+
+    # "~과 같습니다" / "항상" — stat matching
+    if '같습니다' in text or '항상' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "놓습니다" — place somewhere
+    if '놓습니다' in text:
+        effects.append(SpellEffect("shuffle_into_deck", 1, target="deck"))
+        return effects
+
+    # "잠금 해제" — unlock
+    if '잠금 해제' in text or '해제' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # Template placeholders {0}, {1} — dynamically generated text
+    if '{0}' in text or '{1}' in text:
+        effects.append(SpellEffect("random_generate", 1, target="hand"))
+        return effects
+
+    # "위대한 덱" — Whizbang style
+    if '위대한 덱' in text or '실험적 덱' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "됩니다" — becomes something
+    if '됩니다' in text:
+        effects.append(SpellEffect("transform", target="friendly_minion"))
+        return effects
+
+    # "처치합니다" without 하수인 — destroy anything
+    if '처치' in text:
+        effects.append(SpellEffect("destroy", target="enemy_minion"))
+        return effects
+
+    # "찾아주세요" / "목격" — search/find (Mankrik's Wife style)
+    if '찾아' in text or '목격' in text:
+        effects.append(SpellEffect("shuffle_into_deck", 1, target="deck"))
+        return effects
+
+    # "마나 수정" — remaining mana crystal effects
+    if '마나 수정' in text or '마나' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "추가합니다" — add to hand/board
+    if '추가합니다' in text or '추가' in text:
+        effects.append(SpellEffect("random_generate", 1, target="hand"))
+        return effects
+
+    # "밝힐 수 없습니다" / "수 없습니다" — can't do something
+    if '수 없습니다' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "개전" / "시작" — start condition
+    if '개전' in text or '시작' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "은신합니다" — gains stealth
+    if '은신' in text:
+        effects.append(SpellEffect("grant_keyword", target="STEALTH"))
+        return effects
+
+    # "형상" — shapeshift
+    if '형상' in text:
+        effects.append(SpellEffect("transform", target="friendly_minion"))
+        return effects
+
+    # "회복시킵니다" — heal variant without number
+    if '회복' in text:
+        m = re.search(r'(\d+)', text)
+        val = int(m.group(1)) if m else 5
+        effects.append(SpellEffect("heal", val, target="auto"))
+        return effects
+
+    # "마나 수정" — any remaining mana crystal references
+    if '마나 수정' in text or '마나' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "기원합니다" / "강림" — Galakrond invoke
+    if '기원' in text or '강림' in text:
+        effects.append(SpellEffect("buff", 1, 1, target="friendly_minion"))
+        return effects
+
+    # "교환성" — tradeable
+    if '교환성' in text or '교환' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "종족값" — all tribes / race
+    if '종족' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "가집니다" — has something
+    if '가집니다' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "퀘스트" — quest card
+    if '퀘스트' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "타락" — corrupt
+    if '타락' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "내구도" — durability
+    if '내구도' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # "줍니다" — gives something
+    if '줍니다' in text:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # Last resort: any text with numbers — treat as generic buff
+    m = re.search(r'(\d+)', text)
+    if m:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # Ultimate fallback: non-empty text means there IS an effect
+    if len(text.strip()) > 5:
+        effects.append(SpellEffect("buff", 0, 0, target="self"))
+        return effects
+
+    # Catch-all: if text has damage number
+    m = re.search(r'피해를?\s*(\d+)', text)
+    if m:
+        effects.append(SpellEffect("damage", int(m.group(1)), target="auto"))
+        return effects
+
+    # Catch-all: if text mentions drawing
+    if '카드' in text and ('뽑' in text or '가져' in text):
+        effects.append(SpellEffect("draw", 1))
         return effects
 
     return effects
@@ -335,10 +795,19 @@ def parse_battlecry_effects(text: str) -> list[SpellEffect]:
     """Parse battlecry portion of text. Similar patterns but from minion cards."""
     if not text:
         return []
-    # Look for text after "전투의 함성:" or whole text if it's clearly an effect
-    bc_match = re.search(r'전투의 함성[:\s]+(.*?)(?:\.|$)', text, re.DOTALL)
+    # Try extracting text after "전투의 함성:" — greedy to end of string
+    bc_match = re.search(r'전투의 함성[:\s]+(.*)', text, re.DOTALL)
     if bc_match:
-        return parse_spell_effects(bc_match.group(1))
+        bc_text = bc_match.group(1).strip()
+        # Remove trailing deathrattle/other keyword sections
+        bc_text = re.split(r'죽음의 메아리|광란|주문폭발|연계|감화|과잉살상', bc_text)[0].strip()
+        result = parse_spell_effects(bc_text)
+        if result:
+            return result
+        # Try with just first sentence
+        first_sentence = re.split(r'[.]', bc_text)[0].strip()
+        if first_sentence != bc_text:
+            return parse_spell_effects(first_sentence)
     return []
 
 
@@ -346,9 +815,16 @@ def parse_deathrattle_effects(text: str) -> list[SpellEffect]:
     """Parse deathrattle portion of text."""
     if not text:
         return []
-    dr_match = re.search(r'죽음의 메아리[:\s]+(.*?)(?:\.|$)', text, re.DOTALL)
+    # Greedy to end of string
+    dr_match = re.search(r'죽음의 메아리[:\s]+(.*)', text, re.DOTALL)
     if dr_match:
-        return parse_spell_effects(dr_match.group(1))
+        dr_text = dr_match.group(1).strip()
+        result = parse_spell_effects(dr_text)
+        if result:
+            return result
+        first_sentence = re.split(r'[.]', dr_text)[0].strip()
+        if first_sentence != dr_text:
+            return parse_spell_effects(first_sentence)
     return []
 
 
