@@ -30,6 +30,7 @@ class MinionState:
     aura_attack_bonus: int = 0
     frenzy_triggered: bool = False
     spellburst_active: bool = False
+    titan_turns_remaining: int = 0
     mechanics: list[str] = field(default_factory=list)
 
     def take_damage(self, amount: int) -> int:
@@ -46,6 +47,8 @@ class MinionState:
     @property
     def can_attack(self) -> bool:
         if "CANT_ATTACK" in self.mechanics:
+            return False
+        if self.titan_turns_remaining > 0:
             return False
         if self.frozen or self.dormant or self.attack <= 0:
             return False
@@ -151,6 +154,12 @@ class PlayerState:
     corrupted_cards: dict[str, bool] = field(default_factory=dict)
     jade_counter: int = 0
     drawn_this_turn: list[str] = field(default_factory=list)
+    herald_count: int = 0
+    quest_progress: int = 0
+    quest_threshold: int = 0
+    quest_reward_given: bool = False
+    active_quest: str = ""
+    starship_parts: int = 0
 
     def draw_card(self) -> str | None:
         if not self.deck:

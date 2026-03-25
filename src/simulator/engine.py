@@ -112,6 +112,15 @@ class GameEngine:
         """Fire 'At the start of your turn' effects for all friendly minions."""
         player = state.current_player
         opponent = state.opponent
+
+        # TITAN: decrement turns and give ability (+2/+2 each turn)
+        for m in player.board:
+            if m.titan_turns_remaining > 0:
+                m.titan_turns_remaining -= 1
+                m.attack += 2
+                m.health += 2
+                m.max_health += 2
+
         for m in list(player.board):
             if m.is_dead:
                 continue
@@ -310,6 +319,20 @@ class GameEngine:
                                 mana_cost=0,
                             ))
 
+        # STARSHIP_PIECE: track dead pieces and summon Starship when enough collected
+        for player in (state.player1, state.player2):
+            for m in player.board:
+                if m.is_dead and "STARSHIP_PIECE" in m.mechanics:
+                    player.starship_parts += 1
+            if player.starship_parts >= 3 and not player.board_full:
+                player.board.append(MinionState(
+                    card_id="starship", name="Starship",
+                    attack=8, health=8, max_health=8,
+                    mana_cost=0, rush=True, mechanics=["RUSH"],
+                    summoned_this_turn=True,
+                ))
+                player.starship_parts = 0
+
         for player in (state.player1, state.player2):
             dead_count = sum(1 for m in player.board if m.is_dead)
             player.friendly_deaths_this_game += dead_count
@@ -380,6 +403,9 @@ class GameEngine:
 
         # Increment cards played counter (after combo check so combo sees previous count)
         player.cards_played_this_turn += 1
+
+        # QUEST progress: increment on every card played
+        self._check_quest_progress(player)
 
         # ECHO: add a temporary copy to hand
         if "ECHO" in mechanics:
@@ -496,14 +522,56 @@ class GameEngine:
         if "비취 골렘" in text:
             self._summon_jade_golem(state, player)
 
-        # HERALD: summon a 1/1 Soldier token alongside
-        if "HERALD" in mechanics:
-            if not player.board_full:
-                player.board.append(MinionState(
-                    card_id="herald_soldier", name="Soldier",
-                    attack=1, health=1, max_health=1,
-                    mana_cost=0, summoned_this_turn=True,
-                ))
+        # HERALD: summon a Soldier token with class-specific effects, scaled by herald count
+        if "HERALD" in mechanics and not player.board_full:
+            player.herald_count += 1
+            power = 1
+            if player.herald_count >= 4:
+                power = 4
+            elif player.herald_count >= 2:
+                power = 2
+            soldier_atk = 1 * power
+            soldier_hp = 1 * power
+            hero_class = player.hero.hero_class
+            soldier_mechs: list[str] = []
+            if hero_class in ("DEATH_KNIGHT", "WARRIOR"):
+                soldier_mechs = ["DEATHRATTLE"]
+            soldier = MinionState(
+                card_id="herald_soldier", name=f"Soldier ({power}x)",
+                attack=soldier_atk, health=soldier_hp, max_health=soldier_hp,
+                mana_cost=0, mechanics=soldier_mechs, summoned_this_turn=True,
+            )
+            # Register soldier deathrattle text for DEATH_KNIGHT/WARRIOR
+            if hero_class in ("DEATH_KNIGHT", "WARRIOR"):
+                self.card_db["herald_soldier"] = {
+                    "card_id": "herald_soldier", "name": f"Soldier ({power}x)",
+                    "text": f"죽음의 메아리: 적에게 피해를 {2 * power} 줍니다.",
+                    "mechanics": ["DEATHRATTLE"],
+                }
+            # Class-specific bonus
+            if hero_class == "DEMON_HUNTER":
+                player.hero.attack += power
+            elif hero_class == "ROGUE":
+                player.draw_card()
+            elif hero_class == "SHAMAN":
+                for m in player.board:
+                    m.attack += power
+                    m.aura_attack_bonus += power
+            player.board.append(soldier)
+
+        # SHATTER: double stats for minions
+        if "SHATTER" in mechanics:
+            minion.attack *= 2
+            minion.health *= 2
+            minion.max_health *= 2
+
+        # TITAN: set 3-turn ability counter
+        if "TITAN" in mechanics:
+            minion.titan_turns_remaining = 3
+
+        # STARSHIP_PIECE: mark for parts tracking (deathrattle handled in remove_dead_minions)
+        if "STARSHIP_PIECE" in mechanics and "DEATHRATTLE" not in minion.mechanics:
+            minion.mechanics.append("DEATHRATTLE")
 
         # CORRUPT: mark hand cards with lower cost as corrupted
         card_cost = card_data.get("mana_cost", 0)
@@ -579,8 +647,13 @@ class GameEngine:
             player.cards_played_this_turn += 1
             return
 
-        # QUEST: just spend mana and count as played, no effect tracking
+        # QUEST: set up quest tracking
         if "QUEST" in mechanics:
+            from src.simulator.spell_parser import parse_quest_threshold
+            player.active_quest = card_data.get("card_id", "")
+            player.quest_threshold = parse_quest_threshold(card_data.get("text", ""))
+            player.quest_progress = 0
+            player.quest_reward_given = False
             player.cards_played_this_turn += 1
             return
 
@@ -595,6 +668,10 @@ class GameEngine:
 
         # Calculate spell power bonus from friendly minions
         spell_power = self._get_spell_power(state)
+
+        # SHATTER bonus: extra damage for spells
+        if "SHATTER" in mechanics:
+            spell_power += spell_power + 2
 
         for eff in effects:
             if eff.effect_type == "damage":
@@ -677,6 +754,9 @@ class GameEngine:
                         player.draw_card()
 
         player.cards_played_this_turn += 1
+
+        # QUEST progress: increment on every card played
+        self._check_quest_progress(player)
 
         # TWINSPELL: add a copy without TWINSPELL to hand
         if "TWINSPELL" in mechanics:
@@ -762,6 +842,17 @@ class GameEngine:
     def _get_spell_power(self, state: GameState) -> int:
         """Calculate total spell damage bonus from friendly minions with SPELLPOWER."""
         return sum(1 for m in state.current_player.board if "SPELLPOWER" in m.mechanics)
+
+    def _check_quest_progress(self, player: PlayerState):
+        """Increment quest progress and check for completion."""
+        if player.active_quest and not player.quest_reward_given:
+            player.quest_progress += 1
+            if player.quest_progress >= player.quest_threshold:
+                player.quest_reward_given = True
+                # Quest reward: draw 2 cards + hero power cost becomes 0
+                player.draw_card()
+                player.draw_card()
+                player.hero.hero_power_cost = 0
 
     def _check_frenzy(self, minion: MinionState, state: GameState):
         """Trigger frenzy effect if the minion was damaged for the first time."""

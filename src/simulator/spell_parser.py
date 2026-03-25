@@ -269,6 +269,15 @@ def parse_choose_one_effects(text: str) -> list[SpellEffect]:
     return []
 
 
+def parse_quest_threshold(text: str) -> int:
+    """Parse quest threshold from text (e.g. '하수인 5체 사용' -> 5). Returns default 5 if not found."""
+    if not text:
+        return 5  # default
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'(\d+)', clean)
+    return int(m.group(1)) if m else 5
+
+
 def parse_quickdraw_effects(text: str) -> list[SpellEffect]:
     """Parse quickdraw bonus effects (속사:)."""
     if not text:
