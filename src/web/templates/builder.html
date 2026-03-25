@@ -3,7 +3,8 @@
 {% block content %}
 <h1>덱빌더</h1>
 <div class="builder-layout" x-data="deckBuilder()">
-    <div>
+    <!-- Card Pool (left) -->
+    <div class="builder-cards-panel">
         <div class="filter-bar">
             <select x-model="heroClass" @change="searchCards()">
                 <option value="">직업 선택</option>
@@ -19,39 +20,80 @@
                 <option value="DEMONHUNTER">악마사냥꾼</option>
                 <option value="DEATHKNIGHT">죽음의 기사</option>
             </select>
-            <input type="text" placeholder="카드 검색..." x-model="searchQuery" @input.debounce.300ms="searchCards()">
+            <input type="text" placeholder="카드 검색..." x-model="searchQuery"
+                   @input.debounce.300ms="searchCards()">
+            <select x-model="costFilter" @change="searchCards()">
+                <option value="">전체 비용</option>
+                <option value="0">0</option><option value="1">1</option>
+                <option value="2">2</option><option value="3">3</option>
+                <option value="4">4</option><option value="5">5</option>
+                <option value="6">6</option><option value="7">7+</option>
+            </select>
             <button class="btn btn-primary" @click="aiRecommend()">AI 추천</button>
         </div>
-        <div class="card-grid" id="builder-cards">
+
+        <div class="builder-card-list">
             <template x-for="card in cards" :key="card.card_id">
-                <div class="card-tile" @click="addCard(card)">
+                <div class="builder-card-row" @click="addCard(card)">
                     <span class="card-cost" x-text="card.mana_cost"></span>
-                    <span class="card-name" x-text="card.name_ko || card.name"></span>
-                    <div style="font-size:0.75rem;color:var(--text-secondary)" x-text="card.card_type + ' | ' + card.rarity"></div>
+                    <div class="builder-card-info">
+                        <span class="card-name" x-text="card.name_ko || card.name"></span>
+                        <span class="builder-card-meta">
+                            <span x-text="card.attack !== null ? card.attack + '/' + card.health : ''"></span>
+                            <span x-text="card.card_type === 'MINION' ? '하수인' : card.card_type === 'SPELL' ? '주문' : card.card_type === 'WEAPON' ? '무기' : card.card_type"></span>
+                            <span class="builder-rarity" :style="'color:' + rarityColor(card.rarity)" x-text="card.rarity"></span>
+                        </span>
+                    </div>
+                    <span class="builder-add-btn">+</span>
                 </div>
             </template>
+            <div x-show="cards.length === 0" style="padding:1rem;color:var(--text-secondary);text-align:center;">
+                <span x-show="!heroClass">직업을 선택하세요</span>
+                <span x-show="heroClass">카드를 찾을 수 없습니다</span>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        <div class="card-pagination" x-show="totalPages > 1">
+            <button class="btn btn-secondary" @click="prevPage()" :disabled="page <= 1">&larr;</button>
+            <span class="pagination-info" x-text="page + ' / ' + totalPages + ' (' + totalResults + '장)'"></span>
+            <button class="btn btn-secondary" @click="nextPage()" :disabled="page >= totalPages">&rarr;</button>
         </div>
     </div>
+
+    <!-- Deck Panel (right) -->
     <div class="deck-list-panel">
         <h3>덱 (<span x-text="totalCards"></span>/30)</h3>
+
+        <!-- Mana Curve -->
         <div class="mana-curve">
             <template x-for="(count, i) in manaCurve" :key="i">
-                <div>
-                    <div class="mana-bar" :style="'height:' + (count * 12) + 'px'"></div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;">
+                    <div class="mana-bar" :style="'height:' + (count * 10) + 'px'"></div>
                     <div class="mana-label" x-text="i < 7 ? i : '7+'"></div>
                 </div>
             </template>
         </div>
-        <template x-for="card in deckCards" :key="card.card_id">
-            <div class="deck-card-row">
-                <span class="cost" x-text="card.mana_cost"></span>
-                <span class="name" x-text="card.name_ko || card.name"></span>
-                <span class="count" x-text="'x' + card.count"></span>
-                <button style="background:none;color:var(--accent);border:none;cursor:pointer;" @click="removeCard(card)">X</button>
+
+        <!-- Deck Cards -->
+        <div class="deck-card-list">
+            <template x-for="card in deckCards" :key="card.card_id">
+                <div class="deck-card-row">
+                    <span class="cost" x-text="card.mana_cost"></span>
+                    <span class="name" x-text="card.name_ko || card.name"></span>
+                    <span class="count" x-text="'x' + card.count"></span>
+                    <button class="deck-remove-btn" @click="removeCard(card)">&times;</button>
+                </div>
+            </template>
+            <div x-show="deckCards.length === 0" style="padding:1rem;color:var(--text-secondary);text-align:center;font-size:0.85rem;">
+                카드를 클릭하여 덱에 추가하세요
             </div>
-        </template>
-        <div style="margin-top:1rem;">
-            <input type="text" placeholder="덱 코드 붙여넣기..." x-model="importCode" style="width:100%;padding:0.4rem;border-radius:4px;border:1px solid rgba(255,255,255,0.1);background:var(--bg-primary);color:var(--text-primary);">
+        </div>
+
+        <!-- Import -->
+        <div style="margin-top:1rem;border-top:1px solid var(--border-wood);padding-top:0.75rem;">
+            <input type="text" placeholder="덱 코드 붙여넣기..." x-model="importCode"
+                   class="sidebar-input">
             <button class="btn btn-secondary" style="width:100%;margin-top:0.5rem;" @click="importDeck()">가져오기</button>
         </div>
     </div>
@@ -60,22 +102,42 @@
 <script>
 function deckBuilder() {
     return {
-        heroClass: '', searchQuery: '', cards: [], deckCards: [],
+        heroClass: '', searchQuery: '', costFilter: '',
+        cards: [], deckCards: [],
         deckId: null, importCode: '',
+        page: 1, totalPages: 0, totalResults: 0,
+
         get totalCards() { return this.deckCards.reduce((s, c) => s + c.count, 0); },
         get manaCurve() {
             let curve = Array(8).fill(0);
             this.deckCards.forEach(c => { curve[Math.min(c.mana_cost, 7)] += c.count; });
             return curve;
         },
+
+        rarityColor(r) {
+            return {FREE:'#9d9d9d',COMMON:'#9d9d9d',RARE:'#0070dd',EPIC:'#a335ee',LEGENDARY:'#ff8000'}[r]||'#888';
+        },
+
         async searchCards() {
+            this.page = 1;
+            await this.fetchCards();
+        },
+        async fetchCards() {
             let params = new URLSearchParams();
             if (this.searchQuery) params.set('q', this.searchQuery);
             if (this.heroClass) params.set('hero_class', this.heroClass);
+            if (this.costFilter) params.set('cost', this.costFilter);
+            params.set('page', this.page);
+            params.set('per_page', 30);
             let res = await fetch('/api/cards?' + params);
             let data = await res.json();
             this.cards = data.cards || [];
+            this.totalResults = data.total || 0;
+            this.totalPages = Math.ceil(this.totalResults / (data.per_page || 30));
         },
+        prevPage() { if (this.page > 1) { this.page--; this.fetchCards(); } },
+        nextPage() { if (this.page < this.totalPages) { this.page++; this.fetchCards(); } },
+
         async createDeckIfNeeded() {
             if (this.deckId) return;
             let res = await fetch('/api/deck/create?name=New+Deck&hero_class=' + (this.heroClass || 'NEUTRAL'), {method:'POST'});
@@ -83,6 +145,7 @@ function deckBuilder() {
             this.deckId = data.deck_id;
         },
         async addCard(card) {
+            if (this.totalCards >= 30) return;
             await this.createDeckIfNeeded();
             let res = await fetch(`/api/deck/add-card?deck_id=${this.deckId}&card_id=${card.card_id}`, {method:'POST'});
             let data = await res.json();
@@ -90,7 +153,7 @@ function deckBuilder() {
                 let existing = this.deckCards.find(c => c.card_id === card.card_id);
                 if (existing) existing.count++;
                 else this.deckCards.push({...card, count: 1});
-                this.deckCards.sort((a, b) => a.mana_cost - b.mana_cost || a.name.localeCompare(b.name));
+                this.deckCards.sort((a, b) => a.mana_cost - b.mana_cost || (a.name_ko||a.name).localeCompare(b.name_ko||b.name));
             }
         },
         async removeCard(card) {
@@ -112,6 +175,7 @@ function deckBuilder() {
             let res = await fetch(`/api/deck/import?deckstring=${encodeURIComponent(this.importCode)}`, {method:'POST'});
             let data = await res.json();
             if (data.success) { window.location.href = '/deck/' + data.deck_id; }
+            else { alert(data.error || '가져오기 실패'); }
         },
         init() { this.searchCards(); }
     }
