@@ -58,16 +58,32 @@ class GameEngine:
                                 other.attack += bonus
                                 other.aura_attack_bonus += bonus
 
+    # The Coin card data
+    COIN_CARD_ID = "GAME_005"
+    COIN_DATA = {
+        "card_id": "GAME_005", "name": "The Coin", "card_type": "SPELL",
+        "mana_cost": 0, "mechanics": [], "text": "",
+    }
+
     def start_game(self, state: GameState):
+        """Initialize game: shuffle, draw starting hands, give Coin to player 2."""
         random.shuffle(state.player1.deck)
         random.shuffle(state.player2.deck)
+        # Player 1 (goes first): draw 3 cards
         for _ in range(STARTING_HAND_FIRST):
             state.player1.draw_card()
+        # Player 2 (goes second): draw 4 cards + The Coin
         for _ in range(STARTING_HAND_SECOND):
             state.player2.draw_card()
+        state.player2.hand.append(self.COIN_CARD_ID)
+        # Register coin in card_db so it can be played
+        self.card_db[self.COIN_CARD_ID] = self.COIN_DATA
 
     def start_turn(self, state: GameState):
+        """Start of turn phase (Hearthstone turn flow step 1-2)."""
         player = state.current_player
+
+        # Phase 1: Gain mana crystal, unlock overload, reset hero
         player.max_mana = min(player.max_mana + 1, MAX_MANA)
         player.mana = player.max_mana - player.overload
         player.overload = 0
@@ -75,27 +91,78 @@ class GameEngine:
         player.hero.attack = 0
         player.hero.attacks_this_turn = 0
         player.cards_played_this_turn = 0
+
+        # Phase 2: Draw card
         player.draw_card()
 
-    def end_turn(self, state: GameState):
+        # Phase 3: Start-of-turn triggers ("At the start of your turn" effects)
+        self._fire_start_of_turn(state)
+
+    def _fire_start_of_turn(self, state: GameState):
+        """Fire 'At the start of your turn' effects for all friendly minions."""
         player = state.current_player
+        opponent = state.opponent
+        for m in list(player.board):
+            if m.is_dead:
+                continue
+            text = self.card_db.get(m.card_id, {}).get("text", "") or ""
+            # "At the start of your turn" patterns (Korean)
+            # "내 턴이 시작될 때" or "턴 시작 시"
+            if "턴이 시작될 때" in text or "턴 시작 시" in text:
+                from src.simulator.spell_parser import parse_spell_effects
+                # Extract the effect portion after the trigger condition
+                import re
+                effect_match = re.search(r'(?:턴이 시작될 때|턴 시작 시)[,:]?\s*(.*)', text)
+                if effect_match:
+                    effects = parse_spell_effects(effect_match.group(1))
+                    self._apply_battlecry_effects(state, player, m, effects)
+
+    def end_turn(self, state: GameState):
+        """End of turn phase (Hearthstone turn flow step 4-5)."""
+        player = state.current_player
+
+        # Phase 1: End-of-turn triggers ("At the end of your turn" effects)
+        self._fire_end_of_turn(state)
+
+        # Phase 2: Cleanup
         for m in player.board:
             # FREEZE: only thaw if the minion didn't attack this turn
-            # (frozen minions skip their attack, then unfreeze)
             if m.frozen:
                 if m.attacks_this_turn == 0:
                     m.frozen = False
-                # If they attacked while frozen (shouldn't happen), keep frozen
             m.attacks_this_turn = 0
             m.summoned_this_turn = False
         player.hero.attack = 0
         player.hero.attacks_this_turn = 0
+
         # Remove echo copies from hand at end of turn
         if player.echo_cards:
             player.hand = [c for c in player.hand if c not in player.echo_cards]
             player.echo_cards.clear()
+
+        # Remove dead minions from end-of-turn effects
+        self.remove_dead_minions(state)
+
+        # Switch turn
         state.switch_turn()
         self.apply_auras(state)
+
+    def _fire_end_of_turn(self, state: GameState):
+        """Fire 'At the end of your turn' effects for all friendly minions."""
+        player = state.current_player
+        for m in list(player.board):
+            if m.is_dead:
+                continue
+            text = self.card_db.get(m.card_id, {}).get("text", "") or ""
+            # "At the end of your turn" patterns (Korean)
+            # "내 턴이 끝날 때" or "턴 종료 시"
+            if "턴이 끝날 때" in text or "턴 종료 시" in text:
+                from src.simulator.spell_parser import parse_spell_effects
+                import re
+                effect_match = re.search(r'(?:턴이 끝날 때|턴 종료 시)[,:]?\s*(.*)', text)
+                if effect_match:
+                    effects = parse_spell_effects(effect_match.group(1))
+                    self._apply_battlecry_effects(state, player, m, effects)
 
     def resolve_combat(self, attacker: MinionState, defender: MinionState,
                        state: GameState | None = None):
@@ -357,6 +424,12 @@ class GameEngine:
         # SECRET: add to secrets list, don't resolve effects
         if "SECRET" in mechanics:
             player.secrets.append(card_data.get("card_id", ""))
+            player.cards_played_this_turn += 1
+            return
+
+        # The Coin: gain 1 mana crystal this turn only
+        if card_data.get("card_id") == self.COIN_CARD_ID:
+            player.mana = min(player.mana + 1, MAX_MANA)
             player.cards_played_this_turn += 1
             return
 

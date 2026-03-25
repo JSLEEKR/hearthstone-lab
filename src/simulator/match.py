@@ -93,10 +93,16 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict)
             elif card_type == "SPELL":
                 engine.play_spell(state, card_data)
             elif card_type == "WEAPON":
+                # Destroy old weapon before equipping new one
                 player.hero.weapon = WeaponState(
                     card_id=card_data.get("card_id", ""), name=card_data.get("name", ""),
                     attack=card_data.get("attack", 0), durability=card_data.get("durability", 1))
                 player.mana -= card_data.get("mana_cost", 0)
+                # Overload for weapons
+                overload = card_data.get("overload", 0)
+                if overload:
+                    player.overload += overload
+                player.cards_played_this_turn += 1
     elif isinstance(action, Attack):
         player = state.current_player
         opponent = state.opponent

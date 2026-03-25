@@ -18,7 +18,8 @@ class TestGameEngine:
         state = _make_game()
         engine.start_game(state)
         assert len(state.player1.hand) == 3
-        assert len(state.player2.hand) == 4
+        assert len(state.player2.hand) == 5  # 4 cards + The Coin
+        assert "GAME_005" in state.player2.hand
 
     def test_start_turn_gives_mana(self):
         engine = GameEngine()
