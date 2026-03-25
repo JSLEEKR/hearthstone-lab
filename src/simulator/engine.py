@@ -346,7 +346,15 @@ class GameEngine:
             opponent = state.player2 if player_idx == 0 else state.player1
             for m in player.board:
                 if m.is_dead and "DEATHRATTLE" in m.mechanics:
-                    effects = parse_deathrattle_effects(self.card_db.get(m.card_id, {}).get("text", ""))
+                    # Check for special deathrattle weapon equip
+                    card_entry = self.card_db.get(m.card_id, {})
+                    dr_weapon = card_entry.get("_deathrattle_weapon")
+                    if dr_weapon:
+                        player.hero.weapon = WeaponState(
+                            card_id=dr_weapon["card_id"], name=dr_weapon["name"],
+                            attack=dr_weapon["attack"], durability=dr_weapon["durability"],
+                        )
+                    effects = parse_deathrattle_effects(card_entry.get("text", ""))
                     for eff in effects:
                         if eff.effect_type == "damage":
                             if opponent.board:
