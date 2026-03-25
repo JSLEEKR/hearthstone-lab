@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class SpellEffect:
-    effect_type: str  # "damage", "aoe_damage", "heal", "draw", "buff", "destroy", "summon", "armor", "freeze_all", "grant_keyword", "cost_reduction", "set_cost", "random_summon", "random_generate", "discover"
+    effect_type: str  # "damage", "aoe_damage", "heal", "draw", "buff", "destroy", "summon", "armor", "freeze_all", "grant_keyword", "cost_reduction", "set_cost", "random_summon", "random_generate", "discover", "transform", "resurrect", "shuffle_into_deck", "silence"
     value: int = 0
     value2: int = 0  # for buff: attack bonus, value = health bonus
     target: str = "auto"  # "enemy_hero", "enemy_minion", "all_enemy_minions", "all_minions", "friendly_minion", "self_hero", "random_enemy"
@@ -46,6 +46,67 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
     m = re.search(r'비용이?\s*\((\d+)\)', text)
     if m and '됩니다' in text:
         effects.append(SpellEffect("set_cost", int(m.group(1)), target="hand"))
+        return effects
+
+    # Transform: "변신" or "변환"
+    if '변신' in text or ('변환' in text and '하수인' in text):
+        effects.append(SpellEffect("transform", target="enemy_minion"))
+        return effects
+
+    # Resurrect: "부활" or "되살"
+    if '부활' in text or '되살' in text:
+        m = re.search(r'(\d+)', text)
+        count = int(m.group(1)) if m else 1
+        effects.append(SpellEffect("resurrect", count, target="friendly_board"))
+        return effects
+
+    # Shuffle into deck: "섞어" or "섞습니다"
+    if '섞' in text and '덱' in text:
+        m = re.search(r'(\d+)', text)
+        count = int(m.group(1)) if m else 1
+        effects.append(SpellEffect("shuffle_into_deck", count, target="deck"))
+        return effects
+
+    # Double: "2배" or "두 배"
+    if '2배' in text or '두 배' in text:
+        if '능력치' in text or '공격력' in text:
+            effects.append(SpellEffect("buff", 0, 0, target="double_stats"))
+        else:
+            effects.append(SpellEffect("draw", 1))  # simplified
+        return effects
+
+    # Replay/repeat: "반복" or "다시 시전"
+    if '반복' in text or '다시 시전' in text:
+        effects.append(SpellEffect("draw", 1))  # simplified as card advantage
+        return effects
+
+    # Immune: "면역"
+    if '면역' in text and '하수인' not in text:
+        effects.append(SpellEffect("grant_keyword", target="IMMUNE"))
+        return effects
+
+    # Board clear: "모든 하수인을 파괴" or "모두 처치"
+    if ('모든' in text or '모두' in text) and ('파괴' in text or '처치' in text) and '하수인' in text:
+        effects.append(SpellEffect("aoe_damage", 999, target="all_minions"))
+        return effects
+
+    # Hero power change: "영웅 능력" + "교체"
+    if '영웅 능력' in text and '교체' in text:
+        effects.append(SpellEffect("draw", 1))  # simplified
+        return effects
+
+    # Saga: "설화" — multi-chapter card, simplified as draw
+    if '설화' in text:
+        effects.append(SpellEffect("draw", 1))
+        return effects
+
+    # Tourist: "관광객" — deckbuilding effect, no in-game effect
+    if '관광객' in text:
+        return effects  # return empty — handled as stat body
+
+    # Corpse: "시체" — DK mechanic, simplified
+    if '시체' in text and '소모' in text:
+        effects.append(SpellEffect("buff", 2, 2, target="friendly_minion"))
         return effects
 
     # Random summon: "무작위 하수인을 소환" or "무작위 N코스트 하수인 소환"

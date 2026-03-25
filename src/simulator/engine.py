@@ -658,6 +658,10 @@ class GameEngine:
             elif eff.effect_type == "draw":
                 for _ in range(eff.value):
                     player.draw_card()
+            elif eff.effect_type == "buff" and eff.target == "double_stats":
+                minion.attack *= 2
+                minion.health *= 2
+                minion.max_health *= 2
             elif eff.effect_type == "buff":
                 minion.attack += eff.value
                 minion.health += eff.value2
@@ -745,6 +749,53 @@ class GameEngine:
 
             elif eff.effect_type == "discover":
                 self._discover(state, player)
+
+            elif eff.effect_type == "transform":
+                # Transform highest health enemy minion into random same-cost minion
+                if state.opponent.board:
+                    target = max(state.opponent.board, key=lambda m: m.health)
+                    cost = target.mana_cost
+                    candidates = [c for c in self.card_db.values()
+                                  if c.get("card_type") == "MINION" and c.get("mana_cost") == cost
+                                  and not c.get("card_id", "").endswith("_mini")]
+                    if candidates:
+                        pick = random.choice(candidates)
+                        idx = state.opponent.board.index(target)
+                        state.opponent.board[idx] = MinionState(
+                            card_id=pick["card_id"], name=pick.get("name", ""),
+                            attack=pick.get("attack", 1), health=pick.get("health", 1),
+                            max_health=pick.get("health", 1), mana_cost=pick.get("mana_cost", 0),
+                            summoned_this_turn=True,
+                        )
+                    else:
+                        target.health = 0
+
+            elif eff.effect_type == "resurrect":
+                for _ in range(eff.value):
+                    if not player.board_full:
+                        candidates = [c for c in self.card_db.values()
+                                      if c.get("card_type") == "MINION"
+                                      and c.get("mana_cost", 99) <= 5
+                                      and not c.get("card_id", "").endswith("_mini")]
+                        if candidates:
+                            pick = random.choice(candidates)
+                            player.board.append(MinionState(
+                                card_id=pick["card_id"], name=pick.get("name", ""),
+                                attack=pick.get("attack", 1), health=pick.get("health", 1),
+                                max_health=pick.get("health", 1), mana_cost=pick.get("mana_cost", 0),
+                                summoned_this_turn=True,
+                            ))
+
+            elif eff.effect_type == "shuffle_into_deck":
+                # Shuffle random cards from card_db into player's deck
+                candidates = [c for c in self.card_db.values()
+                              if c.get("card_type") in ("MINION", "SPELL")
+                              and c.get("card_id", "").upper() != "GAME_005"]
+                for _ in range(eff.value):
+                    if candidates:
+                        pick = random.choice(candidates)
+                        player.deck.append(pick["card_id"])
+                random.shuffle(player.deck)
 
     def play_spell(self, state: GameState, card_data: dict, target=None):
         player = state.current_player
