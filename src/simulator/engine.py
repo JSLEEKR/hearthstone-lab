@@ -440,8 +440,14 @@ class GameEngine:
             minion.max_health += 2
             del player.corrupted_cards[card_id]
 
-        # Apply battlecry
-        if "BATTLECRY" in mechanics:
+        # Check card-specific handler
+        from src.simulator.card_handlers import CARD_HANDLERS
+        handler = CARD_HANDLERS.get(card_data.get("card_id", ""))
+        if handler:
+            handler(self, state, player, minion)
+            # Skip normal battlecry parsing for handled cards
+        elif "BATTLECRY" in mechanics:
+            # Apply battlecry
             from src.simulator.spell_parser import parse_battlecry_effects
             effects = parse_battlecry_effects(card_data.get("text", ""))
             self._apply_battlecry_effects(state, player, minion, effects)
