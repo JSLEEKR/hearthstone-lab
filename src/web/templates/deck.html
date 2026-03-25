@@ -1,24 +1,106 @@
 {% extends "base.html" %}
 {% block title %}{{ deck.name }} - HS Deck Maker{% endblock %}
 {% block content %}
-<h1>{{ deck.name }}</h1>
-<p style="color:var(--text-secondary);">{{ deck.hero_class }} | {{ deck.format }}</p>
 
-<div class="builder-layout">
+{% set class_ko = {
+    'MAGE': '마법사', 'WARRIOR': '전사', 'PALADIN': '성기사',
+    'HUNTER': '사냥꾼', 'ROGUE': '도적', 'PRIEST': '사제',
+    'SHAMAN': '주술사', 'WARLOCK': '흑마법사', 'DRUID': '드루이드',
+    'DEMONHUNTER': '악마사냥꾼', 'DEATHKNIGHT': '죽음의 기사'
+} %}
+
+{% set class_colors = {
+    'MAGE': '#3fc7eb', 'WARRIOR': '#c79c6e', 'PALADIN': '#f58cba',
+    'HUNTER': '#abd473', 'ROGUE': '#fff569', 'PRIEST': '#ffffff',
+    'SHAMAN': '#0070de', 'WARLOCK': '#9482c9', 'DRUID': '#ff7d0a',
+    'DEMONHUNTER': '#a9d271', 'DEATHKNIGHT': '#c41e3a'
+} %}
+
+{% set rarity_colors = {
+    'FREE': '#9d9d9d', 'COMMON': '#9d9d9d', 'RARE': '#0070dd',
+    'EPIC': '#a335ee', 'LEGENDARY': '#ff8000'
+} %}
+
+<div class="deck-detail-header" style="border-left: 4px solid {{ class_colors.get(deck.hero_class, '#888') }};">
     <div>
-        <h3>마나 커브</h3>
-        <canvas id="mana-chart" height="200"></canvas>
+        <h1 style="margin:0;">{{ deck.name }}</h1>
+        <p style="color:var(--text-secondary);margin-top:0.25rem;">
+            {{ class_ko.get(deck.hero_class, deck.hero_class) }} &middot;
+            {{ deck.format }} &middot;
+            {{ cards|length }}종 / {{ cards|sum(attribute='count') }}장
+        </p>
+    </div>
+    <div style="display:flex;gap:0.5rem;">
+        <button class="btn btn-primary" onclick="exportDeck()">덱 코드 복사</button>
+        <span id="export-status" style="color:var(--gold);font-size:0.85rem;align-self:center;"></span>
+    </div>
+</div>
 
-        <h3 style="margin-top:1.5rem;">덱스트링 내보내기</h3>
-        <div style="margin:0.5rem 0;">
-            <button class="btn btn-primary" onclick="exportDeck()">덱 코드 복사</button>
-            <span id="export-status"></span>
+<div class="deck-detail-layout">
+    <!-- Left: Stats -->
+    <div class="deck-stats-panel">
+        <div class="deck-stat-card">
+            <h3>마나 커브</h3>
+            <canvas id="mana-chart" height="180"></canvas>
+        </div>
+
+        <div class="deck-stat-card">
+            <h3>카드 구성</h3>
+            <div class="deck-composition">
+                {% set type_counts = {} %}
+                {% for card in cards %}
+                    {% if card.card_type in type_counts %}
+                        {% set _ = type_counts.update({card.card_type: type_counts[card.card_type] + card.count}) %}
+                    {% else %}
+                        {% set _ = type_counts.update({card.card_type: card.count}) %}
+                    {% endif %}
+                {% endfor %}
+                {% set type_ko = {'MINION': '하수인', 'SPELL': '주문', 'WEAPON': '무기', 'HERO': '영웅', 'LOCATION': '장소'} %}
+                {% for t, c in type_counts.items() %}
+                <div class="comp-row">
+                    <span class="comp-label">{{ type_ko.get(t, t) }}</span>
+                    <div class="comp-bar-bg">
+                        <div class="comp-bar" style="width: {{ (c / 30 * 100)|int }}%;"></div>
+                    </div>
+                    <span class="comp-value">{{ c }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="deck-stat-card">
+            <h3>레어도 분포</h3>
+            <div class="deck-composition">
+                {% set rarity_counts = {} %}
+                {% for card in cards %}
+                    {% if card.rarity in rarity_counts %}
+                        {% set _ = rarity_counts.update({card.rarity: rarity_counts[card.rarity] + card.count}) %}
+                    {% else %}
+                        {% set _ = rarity_counts.update({card.rarity: card.count}) %}
+                    {% endif %}
+                {% endfor %}
+                {% set rarity_order = ['FREE', 'COMMON', 'RARE', 'EPIC', 'LEGENDARY'] %}
+                {% set rarity_ko = {'FREE': '무료', 'COMMON': '일반', 'RARE': '희귀', 'EPIC': '영웅', 'LEGENDARY': '전설'} %}
+                {% for r in rarity_order %}
+                {% if r in rarity_counts %}
+                <div class="comp-row">
+                    <span class="comp-label"><span style="color:{{ rarity_colors.get(r, '#888') }};">&#9679;</span> {{ rarity_ko.get(r, r) }}</span>
+                    <div class="comp-bar-bg">
+                        <div class="comp-bar" style="width: {{ (rarity_counts[r] / 30 * 100)|int }}%; background: {{ rarity_colors.get(r, '#888') }};"></div>
+                    </div>
+                    <span class="comp-value">{{ rarity_counts[r] }}</span>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
         </div>
     </div>
+
+    <!-- Right: Card List -->
     <div class="deck-list-panel">
-        <h3>카드 목록 ({{ cards|length }}종)</h3>
+        <h3>카드 목록</h3>
         {% for card in cards %}
-        <div class="deck-card-row">
+        <div class="deck-card-row" style="border-left: 2px solid {{ rarity_colors.get(card.rarity, '#888') }};">
             <span class="cost">{{ card.mana_cost }}</span>
             <span class="name">{{ card.name_ko or card.name }}</span>
             <span class="count">x{{ card.count }}</span>
@@ -36,7 +118,7 @@ new Chart(ctx, {
         datasets: [{
             label: '카드 수',
             data: {{ mana_curve | tojson }},
-            backgroundColor: '#0070dd',
+            backgroundColor: '{{ class_colors.get(deck.hero_class, "#0070dd") }}',
             borderRadius: 4,
         }]
     },
@@ -44,8 +126,8 @@ new Chart(ctx, {
         responsive: true,
         plugins: { legend: { display: false } },
         scales: {
-            y: { beginAtZero: true, ticks: { stepSize: 1, color: '#a8a8b8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-            x: { ticks: { color: '#a8a8b8' }, grid: { display: false } },
+            y: { beginAtZero: true, ticks: { stepSize: 1, color: '#9d8a6e' }, grid: { color: 'rgba(92,58,30,0.3)' } },
+            x: { ticks: { color: '#9d8a6e' }, grid: { display: false } },
         }
     }
 });
@@ -56,6 +138,7 @@ async function exportDeck() {
     if (data.success) {
         navigator.clipboard.writeText(data.deckstring);
         document.getElementById('export-status').textContent = '복사됨!';
+        setTimeout(() => document.getElementById('export-status').textContent = '', 2000);
     }
 }
 </script>

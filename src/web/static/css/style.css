@@ -285,6 +285,11 @@ body {
 
 /* === Deck Builder === */
 .builder-layout { display: grid; grid-template-columns: 1fr 300px; gap: 1rem; align-items: start; }
+.builder-3col {
+    display: grid; grid-template-columns: 200px 1fr 280px;
+    gap: 0.75rem; align-items: start;
+}
+.builder-center { min-width: 0; }
 .builder-cards-panel {
     background: var(--bg-secondary); border: 1px solid var(--border-wood);
     border-radius: 6px; padding: 0.75rem;
@@ -346,6 +351,37 @@ body {
 }
 .deck-remove-btn:hover { color: #ff4444; opacity: 1; }
 
+/* === Deck Detail === */
+.deck-detail-header {
+    background: var(--bg-secondary); border: 1px solid var(--border-wood);
+    border-radius: 4px; padding: 1rem 1.25rem; margin-bottom: 1rem;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.deck-detail-layout {
+    display: grid; grid-template-columns: 1fr 280px; gap: 1rem; align-items: start;
+}
+.deck-stats-panel { display: flex; flex-direction: column; gap: 0.75rem; }
+.deck-stat-card {
+    background: var(--bg-secondary); border: 1px solid var(--border-wood);
+    border-radius: 6px; padding: 0.75rem;
+}
+.deck-stat-card h3 {
+    font-size: 0.75rem; color: var(--gold-dim); text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: 0.5rem;
+}
+.deck-composition { display: flex; flex-direction: column; gap: 0.4rem; }
+.comp-row { display: flex; align-items: center; gap: 0.5rem; }
+.comp-label { font-size: 0.8rem; min-width: 55px; }
+.comp-bar-bg {
+    flex: 1; height: 14px; background: var(--bg-panel);
+    border-radius: 3px; overflow: hidden;
+}
+.comp-bar {
+    height: 100%; background: var(--mana-blue); border-radius: 3px;
+    transition: width 0.3s;
+}
+.comp-value { font-size: 0.8rem; font-weight: bold; min-width: 20px; text-align: right; }
+
 /* === Mana Curve Chart === */
 .mana-curve { display: flex; align-items: flex-end; gap: 4px; height: 100px; margin: 1rem 0; }
 .mana-bar {
@@ -405,6 +441,7 @@ body {
 /* === Responsive === */
 @media (max-width: 768px) {
     .builder-layout { grid-template-columns: 1fr; }
+    .builder-3col { grid-template-columns: 1fr; }
     .cards-layout { grid-template-columns: 1fr; }
     .cards-sidebar { position: static; height: auto; max-height: 300px; }
     .card-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
