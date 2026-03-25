@@ -161,6 +161,14 @@ class PlayerState:
     quest_reward_given: bool = False
     active_quest: str = ""
     starship_parts: int = 0
+    played_cards_this_game: list[dict] = field(default_factory=list)  # [{card_id, card_type, mana_cost, turn, mechanics, race}]
+    spells_cast_this_turn: list[str] = field(default_factory=list)  # card_ids of spells cast this turn
+    spells_cast_last_turn: list[str] = field(default_factory=list)  # card_ids from previous turn
+    damage_taken_this_turn: int = 0  # damage hero took this turn
+    hero_hp_at_turn_start: int = 0  # hero HP + armor snapshot at turn start
+    corpses: int = 0  # Death Knight corpse resource
+    next_battlecry_multiplier: int = 1  # 1 = normal, 3 = Shudderblock
+    next_spell_cast_twice_count: int = 0  # Tyrande: how many more spells cast twice
 
     def draw_card(self) -> str | None:
         if not self.deck:

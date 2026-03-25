@@ -63,13 +63,14 @@ def _buttons(engine, state, player, minion):
 
 
 def _exarch_maladaar(engine, state, player, minion):
-    """GDB_470 Exarch Maladaar: Next card costs Corpses instead of mana. Sets the
-    next card in hand to cost 0, capturing the intent that it bypasses mana cost."""
-    for card_id in player.hand:
-        card = engine.card_db.get(card_id, {})
-        if card:
-            card["mana_cost"] = 0
-            break
+    """GDB_470 Exarch Maladaar: Next card costs Corpses instead of mana."""
+    if player.hand:
+        card_id = player.hand[0]
+        cd = engine.card_db.get(card_id, {})
+        if cd:
+            original_cost = cd.get("mana_cost", 0)
+            cd["mana_cost"] = 0
+            player.corpses -= min(player.corpses, original_cost)
 
 
 def _high_cultist_herenn(engine, state, player, minion):
@@ -459,13 +460,12 @@ def _ultraxion(engine, state, player, minion):
 
 
 def _chromie(engine, state, player, minion):
-    """TIME_103 Chromie: Deathrattle that draws copies of all cards played this game.
-    The real effect scales with game length; our implementation draws 2 cards as a
-    conservative estimate since played-card history is not tracked."""
+    """TIME_103 Chromie: Deathrattle: Draw copies of all cards played this game."""
+    n = min(len(player.played_cards_this_game), 5)  # cap at 5
     if "DEATHRATTLE" not in minion.mechanics:
         minion.mechanics.append("DEATHRATTLE")
     db_entry = dict(engine.card_db.get(minion.card_id, {}))
-    db_entry["text"] = "죽음의 메아리: 카드를 2장 뽑습니다"
+    db_entry["text"] = f"죽음의 메아리: 카드를 {n}장 뽑습니다"
     engine.card_db[minion.card_id] = db_entry
 
 
@@ -695,16 +695,14 @@ def _narain_soothfancy(engine, state, player, minion):
 
 
 def _timewinder_zarimi(engine, state, player, minion):
-    """TOY_385 Timewinder Zarimi: If you played 8 dragons this game, take an extra
-    turn. An extra turn is roughly equivalent to drawing cards and attacking; our
-    implementation uses turn >= 8 as proxy for the dragon count condition, then
-    draws 4 cards and gives all friendly minions rush to represent the extra turn."""
-    if state.turn >= 8:
+    """TOY_385 Zarimi: If 8 other Dragons played, take extra turn."""
+    dragon_count = sum(1 for p in player.played_cards_this_game
+                       if p.get("race") == "DRAGON")
+    if dragon_count >= 8:
         _draw_cards(player, 3)
         for m in player.board:
-            if not m.rush:
-                m.rush = True
-        _draw_cards(player, 1)
+            m.rush = True
+            m.windfury = True
 
 
 def _eternus(engine, state, player, minion):
@@ -730,15 +728,8 @@ def _natalie_seline(engine, state, player, minion):
 
 
 def _tyrande(engine, state, player, minion):
-    """EDR_464 Tyrande: Your next 3 spells are cast twice. Double-casting primarily
-    doubles damage output; our implementation grants spell power +2 to represent the
-    doubled spell value since we cannot track per-spell double-cast counters."""
-    if "SPELLPOWER" not in minion.mechanics:
-        minion.mechanics.append("SPELLPOWER")
-    # Register spell power +2 in card_db text so _get_spell_power parses it
-    db_entry = dict(engine.card_db.get(minion.card_id, {}))
-    db_entry["text"] = db_entry.get("text", "") + " 주문 공격력 +2"
-    engine.card_db[minion.card_id] = db_entry
+    """EDR_464 Tyrande: Next 3 spells are cast twice."""
+    player.next_spell_cast_twice_count = 3
 
 
 # ---------------------------------------------------------------------------
@@ -805,17 +796,16 @@ def _farseer_nobundo(engine, state, player, minion):
 
 
 def _kragwa(engine, state, player, minion):
-    """CORE_TRL_345 Krag'wa: Battlecry: Return all spells you cast last turn to hand.
-    The real effect returns specific spells from history; our implementation draws 2
-    cards because previous-turn spell history is not tracked in the simulator."""
-    _draw_cards(player, 2)
+    """CORE_TRL_345 Krag'wa: Return all spells cast last turn to hand."""
+    from src.simulator.game_state import HAND_LIMIT
+    for spell_id in player.spells_cast_last_turn:
+        if len(player.hand) < HAND_LIMIT:
+            player.hand.append(spell_id)
 
 
 def _shudderblock(engine, state, player, minion):
-    """TOY_501 Shudderblock: Your next Battlecry triggers 3 times. Triple battlecry's
-    primary value is a large tempo swing; our implementation grants +3 mana to
-    represent that tempo since we cannot track and triple the next battlecry."""
-    player.mana += 3
+    """TOY_501 Shudderblock: Next Battlecry triggers 3 times (can't damage enemy hero)."""
+    player.next_battlecry_multiplier = 3
 
 
 def _murmur(engine, state, player, minion):
@@ -858,27 +848,22 @@ def _game_master_nemsy(engine, state, player, minion):
 
 
 def _archimonde(engine, state, player, minion):
-    """GDB_128 Archimonde: Summon all Demons you played this game that didn't start in
-    your deck. Since played-demon history is not tracked, summons demons proportional
-    to game length: 4x 5/5 in late game (turn >= 10), 3x 4/4 in mid game (turn >= 7),
-    or 2x 3/3 in early game."""
-    if state.turn >= 10:
-        for _ in range(4):
-            _summon_token(player, "Demon", 5, 5)
-    elif state.turn >= 7:
-        for _ in range(3):
-            _summon_token(player, "Demon", 4, 4)
-    else:
-        for _ in range(2):
-            _summon_token(player, "Demon", 3, 3)
+    """GDB_128 Archimonde: Summon all Demons played this game not in starting deck."""
+    from src.simulator.game_state import MinionState, BOARD_LIMIT
+    for played in player.played_cards_this_game:
+        if len(player.board) >= BOARD_LIMIT:
+            break
+        if played.get("race") == "DEMON" or "DEMON" in str(played.get("mechanics", [])):
+            card = engine.card_db.get(played["card_id"], {})
+            if card.get("card_type") == "MINION":
+                _summon_token(player, card.get("name", "Demon"),
+                              card.get("attack", 3), card.get("health", 3))
 
 
 def _party_planner_vona(engine, state, player, minion):
-    """VAC_945 Party Planner Vona: If you took 8+ damage on your turn, summon an 8/8
-    Ouroboros with rush. The exact 8-damage-this-turn threshold is hard to track, so
-    our implementation triggers if the hero has taken any damage (health < max_health),
-    which is a reasonable proxy since Warlock frequently self-damages."""
-    if player.hero.health < player.hero.max_health:
+    """VAC_945 Vona: If you took 8 damage on your turn, summon Ouroboros."""
+    hp_lost = player.hero_hp_at_turn_start - (player.hero.health + player.hero.armor)
+    if hp_lost >= 8:
         _summon_token(player, "Ouroboros", 8, 8, rush=True)
 
 

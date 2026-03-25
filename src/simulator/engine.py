@@ -102,6 +102,12 @@ class GameEngine:
         player.cards_played_this_turn = 0
         player.drawn_this_turn.clear()
 
+        # Reset turn-based tracking
+        player.spells_cast_last_turn = list(player.spells_cast_this_turn)
+        player.spells_cast_this_turn.clear()
+        player.damage_taken_this_turn = 0
+        player.hero_hp_at_turn_start = player.hero.health + player.hero.armor
+
         # Phase 2: Draw card
         player.draw_card()
 
@@ -401,6 +407,7 @@ class GameEngine:
             if dead_count > 0:
                 any_died = True
             player.friendly_deaths_this_game += dead_count
+            player.corpses += dead_count  # DK corpse resource
             new_board: list[MinionState] = []
             for m in player.board:
                 if m.is_dead:
@@ -458,6 +465,16 @@ class GameEngine:
             minion.max_health += 2
             del player.corrupted_cards[card_id]
 
+        # Record played card
+        player.played_cards_this_game.append({
+            "card_id": card_data.get("card_id", ""),
+            "card_type": "MINION",
+            "mana_cost": card_data.get("mana_cost", 0),
+            "turn": state.turn,
+            "mechanics": card_data.get("mechanics", []),
+            "race": card_data.get("race", ""),
+        })
+
         # Check card-specific handler
         from src.simulator.card_handlers import CARD_HANDLERS
         handler = CARD_HANDLERS.get(card_data.get("card_id", ""))
@@ -469,6 +486,18 @@ class GameEngine:
             from src.simulator.spell_parser import parse_battlecry_effects
             effects = parse_battlecry_effects(card_data.get("text", ""))
             self._apply_battlecry_effects(state, player, minion, effects)
+
+        # Battlecry multiplier (e.g. Shudderblock)
+        if player.next_battlecry_multiplier > 1 and "BATTLECRY" in mechanics:
+            from src.simulator.spell_parser import parse_battlecry_effects as _parse_bc
+            bc_effects = _parse_bc(card_data.get("text", ""))
+            for _ in range(player.next_battlecry_multiplier - 1):
+                handler = CARD_HANDLERS.get(card_data.get("card_id", ""))
+                if handler:
+                    handler(self, state, player, minion)
+                elif bc_effects:
+                    self._apply_battlecry_effects(state, player, minion, bc_effects)
+            player.next_battlecry_multiplier = 1
 
         # COMBO: apply combo bonus if another card was played this turn
         if "COMBO" in mechanics and player.cards_played_this_turn > 0:
@@ -821,6 +850,75 @@ class GameEngine:
                         player.deck.append(pick["card_id"])
                 random.shuffle(player.deck)
 
+    def _apply_single_spell_effect(self, state: GameState, player: PlayerState,
+                                    opponent: PlayerState, eff, spell_power: int, target=None):
+        """Apply a single parsed spell effect."""
+        if eff.effect_type == "damage":
+            damage = eff.value + spell_power
+            if eff.target == "enemy_hero":
+                opponent.hero.take_damage(damage)
+            elif eff.target == "enemy_minion" and opponent.board:
+                if target and isinstance(target, MinionState) and self._can_be_targeted(target):
+                    target.take_damage(damage)
+                else:
+                    targetable = [m for m in opponent.board if self._can_be_targeted(m)]
+                    if targetable:
+                        max(targetable, key=lambda m: m.health).take_damage(damage)
+            elif eff.target == "auto":
+                opponent.hero.take_damage(damage)
+
+        elif eff.effect_type == "aoe_damage":
+            damage = eff.value + spell_power
+            if eff.target == "all_minions":
+                for m in player.board + opponent.board:
+                    m.take_damage(damage)
+            elif eff.target == "all_enemy_minions":
+                for m in opponent.board:
+                    m.take_damage(damage)
+
+        elif eff.effect_type == "heal":
+            if eff.target == "auto" or eff.target == "self_hero":
+                player.hero.health = min(player.hero.health + eff.value, player.hero.max_health)
+
+        elif eff.effect_type == "draw":
+            for _ in range(eff.value):
+                player.draw_card()
+
+        elif eff.effect_type == "buff" and player.board:
+            t = player.board[-1] if player.board else None
+            if t:
+                t.attack += eff.value
+                t.health += eff.value2
+                t.max_health += eff.value2
+
+        elif eff.effect_type == "armor":
+            player.hero.armor += eff.value
+
+        elif eff.effect_type == "destroy" and opponent.board:
+            t = max(opponent.board, key=lambda m: m.health)
+            t.health = 0
+
+        elif eff.effect_type == "freeze_all":
+            for m in opponent.board:
+                m.frozen = True
+
+        elif eff.effect_type == "silence":
+            if target and isinstance(target, MinionState):
+                if self._can_be_targeted(target):
+                    self.silence_minion(target)
+            elif opponent.board:
+                targetable = [m for m in opponent.board if self._can_be_targeted(m)]
+                if targetable:
+                    t = max(targetable, key=lambda m: m.health)
+                    self.silence_minion(t)
+
+        elif eff.effect_type == "summon" and not player.board_full:
+            player.board.append(MinionState(
+                card_id="token", name="Token",
+                attack=eff.value, health=eff.value2, max_health=eff.value2,
+                mana_cost=0,
+            ))
+
     def play_spell(self, state: GameState, card_data: dict, target=None):
         player = state.current_player
         opponent = state.opponent
@@ -854,6 +952,16 @@ class GameEngine:
             player.cards_played_this_turn += 1
             return
 
+        # Record spell played
+        player.spells_cast_this_turn.append(card_data.get("card_id", ""))
+        player.played_cards_this_game.append({
+            "card_id": card_data.get("card_id", ""),
+            "card_type": "SPELL",
+            "mana_cost": card_data.get("mana_cost", 0),
+            "turn": state.turn,
+            "mechanics": card_data.get("mechanics", []),
+        })
+
         from src.simulator.spell_parser import parse_spell_effects
         effects = parse_spell_effects(card_data.get("text", ""))
 
@@ -865,71 +973,13 @@ class GameEngine:
             spell_power = spell_power * 2 + 2
 
         for eff in effects:
-            if eff.effect_type == "damage":
-                damage = eff.value + spell_power
-                if eff.target == "enemy_hero":
-                    opponent.hero.take_damage(damage)
-                elif eff.target == "enemy_minion" and opponent.board:
-                    if target and isinstance(target, MinionState) and self._can_be_targeted(target):
-                        target.take_damage(damage)
-                    else:
-                        targetable = [m for m in opponent.board if self._can_be_targeted(m)]
-                        if targetable:
-                            max(targetable, key=lambda m: m.health).take_damage(damage)
-                elif eff.target == "auto":
-                    opponent.hero.take_damage(damage)
+            self._apply_single_spell_effect(state, player, opponent, eff, spell_power, target)
 
-            elif eff.effect_type == "aoe_damage":
-                damage = eff.value + spell_power
-                if eff.target == "all_minions":
-                    for m in player.board + opponent.board:
-                        m.take_damage(damage)
-                elif eff.target == "all_enemy_minions":
-                    for m in opponent.board:
-                        m.take_damage(damage)
-
-            elif eff.effect_type == "heal":
-                if eff.target == "auto" or eff.target == "self_hero":
-                    player.hero.health = min(player.hero.health + eff.value, player.hero.max_health)
-
-            elif eff.effect_type == "draw":
-                for _ in range(eff.value):
-                    player.draw_card()
-
-            elif eff.effect_type == "buff" and player.board:
-                t = player.board[-1] if player.board else None
-                if t:
-                    t.attack += eff.value
-                    t.health += eff.value2
-                    t.max_health += eff.value2
-
-            elif eff.effect_type == "armor":
-                player.hero.armor += eff.value
-
-            elif eff.effect_type == "destroy" and opponent.board:
-                t = max(opponent.board, key=lambda m: m.health)
-                t.health = 0
-
-            elif eff.effect_type == "freeze_all":
-                for m in opponent.board:
-                    m.frozen = True
-
-            elif eff.effect_type == "silence":
-                if target and isinstance(target, MinionState):
-                    if self._can_be_targeted(target):
-                        self.silence_minion(target)
-                elif opponent.board:
-                    targetable = [m for m in opponent.board if self._can_be_targeted(m)]
-                    if targetable:
-                        t = max(targetable, key=lambda m: m.health)
-                        self.silence_minion(t)
-
-            elif eff.effect_type == "summon" and not player.board_full:
-                player.board.append(MinionState(
-                    card_id="token", name="Token",
-                    attack=eff.value, health=eff.value2, max_health=eff.value2,
-                    mana_cost=0,
-                ))
+        # Tyrande double-cast: replay spell effects
+        if player.next_spell_cast_twice_count > 0:
+            player.next_spell_cast_twice_count -= 1
+            for eff in effects:
+                self._apply_single_spell_effect(state, player, opponent, eff, spell_power, target)
 
         # MANATHIRST: bonus if max_mana >= threshold
         from src.simulator.spell_parser import parse_manathirst_effects
