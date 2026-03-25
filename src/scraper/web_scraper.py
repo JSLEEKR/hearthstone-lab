@@ -12,16 +12,13 @@ class HSReplayWebScraper:
     def __init__(self, base_url: str = HSREPLAY_DECKS_URL):
         self.base_url = base_url
 
-    async def _launch_browser(self):
-        from playwright.async_api import async_playwright
-        pw = await async_playwright().start()
-        browser = await pw.chromium.launch(headless=True)
-        return browser
-
     async def scrape_tier_list(self, format_type: str = "standard") -> list[dict]:
+        from playwright.async_api import async_playwright
         url = f"{self.base_url}?hl=ko&gameType={'RANKED_STANDARD' if format_type == 'standard' else 'RANKED_WILD'}"
+        pw = None
         try:
-            browser = await self._launch_browser()
+            pw = await async_playwright().start()
+            browser = await pw.chromium.launch(headless=True)
             context = await browser.new_context()
             page = await context.new_page()
             await page.goto(url, wait_until="networkidle")
@@ -41,6 +38,9 @@ class HSReplayWebScraper:
         except Exception as e:
             logger.error("Playwright scraping failed: %s", e)
             return []
+        finally:
+            if pw:
+                await pw.stop()
 
     @staticmethod
     async def _parse_deck_element(element) -> dict[str, Any] | None:

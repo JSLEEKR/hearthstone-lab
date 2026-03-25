@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from src.collector.hearthstone_json import HearthstoneJsonClient
 
 
@@ -41,10 +41,10 @@ SAMPLE_CARDS_EN = [
 @pytest.mark.asyncio
 async def test_fetch_cards_filters_collectible():
     client = HearthstoneJsonClient(base_url="https://fake.api")
-    mock_response_ko = AsyncMock()
+    mock_response_ko = MagicMock()
     mock_response_ko.json.return_value = SAMPLE_CARDS_KO
     mock_response_ko.raise_for_status = lambda: None
-    mock_response_en = AsyncMock()
+    mock_response_en = MagicMock()
     mock_response_en.json.return_value = SAMPLE_CARDS_EN
     mock_response_en.raise_for_status = lambda: None
 
@@ -60,10 +60,10 @@ async def test_fetch_cards_filters_collectible():
 @pytest.mark.asyncio
 async def test_fetch_cards_maps_fields_correctly():
     client = HearthstoneJsonClient(base_url="https://fake.api")
-    mock_response_ko = AsyncMock()
+    mock_response_ko = MagicMock()
     mock_response_ko.json.return_value = [SAMPLE_CARDS_KO[1]]
     mock_response_ko.raise_for_status = lambda: None
-    mock_response_en = AsyncMock()
+    mock_response_en = MagicMock()
     mock_response_en.json.return_value = [SAMPLE_CARDS_EN[1]]
     mock_response_en.raise_for_status = lambda: None
 

@@ -24,7 +24,7 @@ class BlizzardApiClient:
                 auth=(self.client_id, self.client_secret),
             )
             resp.raise_for_status()
-            data = await resp.json()
+            data = resp.json()
             self._access_token = data["access_token"]
             return self._access_token
 
@@ -33,7 +33,7 @@ class BlizzardApiClient:
             try:
                 resp = await client.get(url, params=params)
                 resp.raise_for_status()
-                return await resp.json()
+                return resp.json()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < MAX_RETRIES - 1:
                     wait = BACKOFF_BASE ** (attempt + 1)

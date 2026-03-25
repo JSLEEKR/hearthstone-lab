@@ -14,11 +14,11 @@ class HearthstoneJsonClient:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp_ko = await client.get(f"{self.base_url}/koKR/cards.json")
             resp_ko.raise_for_status()
-            raw_ko = await resp_ko.json()
+            raw_ko = resp_ko.json()
 
             resp_en = await client.get(f"{self.base_url}/enUS/cards.json")
             resp_en.raise_for_status()
-            raw_en = await resp_en.json()
+            raw_en = resp_en.json()
 
         en_names: dict[str, str] = {}
         for card in raw_en:

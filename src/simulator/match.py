@@ -100,7 +100,13 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict)
     elif isinstance(action, Attack):
         player = state.current_player
         opponent = state.opponent
-        if action.attacker_idx < len(player.board):
+        if action.attacker_idx == -1:
+            # Hero attack
+            if action.target_is_hero:
+                engine.hero_attack_hero(state)
+            elif action.target_idx < len(opponent.board):
+                engine.hero_attack_minion(state, opponent.board[action.target_idx])
+        elif action.attacker_idx < len(player.board):
             attacker = player.board[action.attacker_idx]
             if action.target_is_hero:
                 engine.attack_hero(attacker, opponent.hero)

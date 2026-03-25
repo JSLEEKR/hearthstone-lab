@@ -51,6 +51,30 @@ class GameEngine:
     def attack_hero(self, attacker: MinionState, hero: HeroState):
         hero.take_damage(attacker.attack)
         attacker.attacks_this_turn += 1
+        if attacker.stealth:
+            attacker.stealth = False
+
+    def hero_attack_minion(self, state: GameState, target: MinionState):
+        player = state.current_player
+        attack = player.hero.total_attack
+        target.take_damage(attack)
+        player.hero.take_damage(target.attack)
+        player.hero.attack = 0
+        if player.hero.weapon and not player.hero.weapon.is_broken:
+            player.hero.weapon.durability -= 1
+            if player.hero.weapon.is_broken:
+                player.hero.weapon = None
+
+    def hero_attack_hero(self, state: GameState):
+        player = state.current_player
+        opponent = state.opponent
+        attack = player.hero.total_attack
+        opponent.hero.take_damage(attack)
+        player.hero.attack = 0
+        if player.hero.weapon and not player.hero.weapon.is_broken:
+            player.hero.weapon.durability -= 1
+            if player.hero.weapon.is_broken:
+                player.hero.weapon = None
 
     def remove_dead_minions(self, state: GameState):
         state.player1.board = [m for m in state.player1.board if not m.is_dead]
@@ -151,9 +175,22 @@ class GameEngine:
                 for j, target in enumerate(opponent.board):
                     if has_taunt and not target.taunt:
                         continue
+                    if target.stealth:
+                        continue
                     actions.append(Attack(attacker_idx=i, target_idx=j))
             if m.can_attack_hero and not has_taunt:
                 actions.append(Attack(attacker_idx=i, target_idx=-1, target_is_hero=True))
+
+        # Hero attack with weapon/attack
+        if player.hero.total_attack > 0:
+            for j, target in enumerate(opponent.board):
+                if has_taunt and not target.taunt:
+                    continue
+                if target.stealth:
+                    continue
+                actions.append(Attack(attacker_idx=-1, target_idx=j))
+            if not has_taunt:
+                actions.append(Attack(attacker_idx=-1, target_idx=-1, target_is_hero=True))
 
         if not player.hero.hero_power_used and player.mana >= player.hero.hero_power_cost:
             actions.append(HeroPower())

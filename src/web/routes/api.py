@@ -221,9 +221,9 @@ def run_simulation(
         else:
             results["draws"] += 1
 
-    total = num_matches
-    results["deck_a_winrate"] = round(results["deck_a_wins"] / total * 100, 1) if total > 0 else 0
-    results["deck_b_winrate"] = round(results["deck_b_wins"] / total * 100, 1) if total > 0 else 0
+    actual_matches = min(num_matches, 100)
+    results["deck_a_winrate"] = round(results["deck_a_wins"] / actual_matches * 100, 1) if actual_matches > 0 else 0
+    results["deck_b_winrate"] = round(results["deck_b_wins"] / actual_matches * 100, 1) if actual_matches > 0 else 0
     results["success"] = True
     return results
 

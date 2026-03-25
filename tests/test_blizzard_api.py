@@ -7,7 +7,7 @@ from src.collector.blizzard_api import BlizzardApiClient
 @pytest.mark.asyncio
 async def test_get_access_token():
     client = BlizzardApiClient(client_id="test_id", client_secret="test_secret")
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.json.return_value = {"access_token": "test_token", "expires_in": 86399}
     mock_response.raise_for_status = lambda: None
 
@@ -21,7 +21,7 @@ async def test_fetch_cards_single_page():
     client = BlizzardApiClient(client_id="test_id", client_secret="test_secret")
     client._access_token = "cached_token"
 
-    page1_response = AsyncMock()
+    page1_response = MagicMock()
     page1_response.json.return_value = {
         "cards": [{
             "id": 1369, "slug": "1369-chillwind-yeti", "name": "Chillwind Yeti",

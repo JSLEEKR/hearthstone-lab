@@ -44,26 +44,29 @@ def job_scrape_hsreplay():
     async def _scrape():
         logger.info("Starting HSReplay scrape...")
         client = HSReplayClient()
-        raw_data = await client.fetch_deck_stats(format_type="standard")
-        logger.info("Fetched %d deck stats from HSReplay", len(raw_data))
 
         db = SessionLocal()
         try:
             parser = HSReplayParser(db)
-            parsed = parser.parse_deck_stats(raw_data, format_type="standard")
-            for entry in parsed:
-                deck = parser.find_or_create_deck(
-                    hero_class=entry["hero_class"],
-                    format_type=entry["format"],
-                    deckstring=entry.get("deckstring"),
-                )
-                parser.save_stats(
-                    deck.id,
-                    winrate=entry["winrate"],
-                    playrate=entry["playrate"],
-                    games_played=entry["games_played"],
-                )
-            logger.info("Saved %d deck stats", len(parsed))
+            total_saved = 0
+            for fmt in ["standard", "wild"]:
+                raw_data = await client.fetch_deck_stats(format_type=fmt)
+                logger.info("Fetched %d deck stats from HSReplay (%s)", len(raw_data), fmt)
+                parsed = parser.parse_deck_stats(raw_data, format_type=fmt)
+                for entry in parsed:
+                    deck = parser.find_or_create_deck(
+                        hero_class=entry["hero_class"],
+                        format_type=entry["format"],
+                        deckstring=entry.get("deckstring"),
+                    )
+                    parser.save_stats(
+                        deck.id,
+                        winrate=entry["winrate"],
+                        playrate=entry["playrate"],
+                        games_played=entry["games_played"],
+                    )
+                total_saved += len(parsed)
+            logger.info("Saved %d total deck stats", total_saved)
         finally:
             db.close()
 

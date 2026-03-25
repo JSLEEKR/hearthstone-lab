@@ -54,6 +54,21 @@ class TierCalculator:
         decks = db.query(Deck).filter_by(format=format_type).all()
         results = []
         for deck in decks:
+            # Filter by minimum games if specified
+            if min_games > 0:
+                latest_stats = (
+                    db.query(HSReplayStats)
+                    .filter_by(deck_id=deck.id)
+                    .order_by(HSReplayStats.collected_at.desc())
+                    .first()
+                )
+                sim_total = db.query(func.count(Simulation.id)).filter(
+                    (Simulation.deck_a_id == deck.id) | (Simulation.deck_b_id == deck.id)
+                ).scalar()
+                total_games = (latest_stats.games_played if latest_stats else 0) + sim_total
+                if total_games < min_games:
+                    continue
+
             sim_wr = self.get_sim_winrate(db, deck.id)
             hs_wr = self.get_hsreplay_winrate(db, deck.id)
             combined = self.combined_winrate(sim_wr, hs_wr)

@@ -35,12 +35,17 @@ class SimpleAI:
         best_score = -999
 
         for a in attacks:
-            if a.target_is_hero:
-                score = player.board[a.attacker_idx].attack
+            # Determine attacker's attack value
+            if a.attacker_idx == -1:
+                atk_value = player.hero.total_attack
             else:
-                attacker = player.board[a.attacker_idx]
+                atk_value = player.board[a.attacker_idx].attack
+
+            if a.target_is_hero:
+                score = atk_value
+            else:
                 defender = opponent.board[a.target_idx]
-                if defender.health <= attacker.attack:
+                if defender.health <= atk_value:
                     score = defender.mana_cost + 10
                     if defender.taunt:
                         score += 20

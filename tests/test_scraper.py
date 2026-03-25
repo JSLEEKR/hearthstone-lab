@@ -139,6 +139,13 @@ class TestWebScraper:
         mock_browser.new_context = AsyncMock(return_value=mock_context)
         mock_browser.close = AsyncMock()
 
-        with patch.object(scraper, "_launch_browser", return_value=mock_browser):
+        mock_pw = AsyncMock()
+        mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+        mock_pw.stop = AsyncMock()
+
+        mock_async_pw = AsyncMock()
+        mock_async_pw.start = AsyncMock(return_value=mock_pw)
+
+        with patch("playwright.async_api.async_playwright", return_value=mock_async_pw):
             result = await scraper.scrape_tier_list(format_type="standard")
         assert isinstance(result, list)
