@@ -164,7 +164,6 @@ class PlayerState:
     played_cards_this_game: list[dict] = field(default_factory=list)  # [{card_id, card_type, mana_cost, turn, mechanics, race}]
     spells_cast_this_turn: list[str] = field(default_factory=list)  # card_ids of spells cast this turn
     spells_cast_last_turn: list[str] = field(default_factory=list)  # card_ids from previous turn
-    damage_taken_this_turn: int = 0  # damage hero took this turn
     hero_hp_at_turn_start: int = 0  # hero HP + armor snapshot at turn start
     corpses: int = 0  # Death Knight corpse resource
     next_battlecry_multiplier: int = 1  # 1 = normal, 3 = Shudderblock
