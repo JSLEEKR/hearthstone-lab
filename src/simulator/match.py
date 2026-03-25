@@ -2,7 +2,7 @@ from __future__ import annotations
 import random
 import logging
 from dataclasses import dataclass
-from src.simulator.ai import SimpleAI
+from src.simulator.ai import BaseAI
 from src.simulator.engine import GameEngine
 from src.simulator.game_state import GameState, PlayerState, HeroState, WeaponState
 from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard
@@ -17,9 +17,15 @@ class MatchResult:
 
 
 def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
-              card_db: dict, max_turns: int = 45) -> MatchResult:
+              card_db: dict, max_turns: int = 45, ai_class=None) -> MatchResult:
     engine = GameEngine(card_db=card_db)
-    ai = SimpleAI()
+    if ai_class is None:
+        from src.simulator.ai import RuleBasedAI
+        ai = RuleBasedAI()
+    elif isinstance(ai_class, type):
+        ai = ai_class()
+    else:
+        ai = ai_class  # already an instance
 
     state = GameState(
         player1=PlayerState(hero=HeroState(hero_class=hero_a), deck=list(deck_a)),
