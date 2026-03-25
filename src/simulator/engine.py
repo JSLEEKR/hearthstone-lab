@@ -67,6 +67,15 @@ class GameEngine:
 
     def start_game(self, state: GameState):
         """Initialize game: shuffle, draw starting hands, give Coin to player 2."""
+        # START_OF_GAME: check both players' decks for start-of-game effects
+        for player in [state.player1, state.player2]:
+            for card_id in player.deck:
+                card_data = self.card_db.get(card_id, {})
+                if "START_OF_GAME" in card_data.get("mechanics", []):
+                    # Generic bonus: reduce hero power cost by 1
+                    player.hero.hero_power_cost = max(0, player.hero.hero_power_cost - 1)
+                    break  # Only apply once per player
+
         random.shuffle(state.player1.deck)
         random.shuffle(state.player2.deck)
         # Player 1 (goes first): draw 3 cards
@@ -91,6 +100,7 @@ class GameEngine:
         player.hero.attack = 0
         player.hero.attacks_this_turn = 0
         player.cards_played_this_turn = 0
+        player.drawn_this_turn.clear()
 
         # Phase 2: Draw card
         player.draw_card()
@@ -425,6 +435,76 @@ class GameEngine:
             infuse_effects = parse_infuse_effects(card_data.get("text", ""))
             self._apply_battlecry_effects(state, player, minion, infuse_effects)
 
+        # MAGNETIC: merge with a friendly mech on board
+        if "MAGNETIC" in mechanics:
+            # Find a mech on the board (not the one we just placed)
+            mech_target = None
+            for m in player.board:
+                if m is not minion and "MECHANICAL" in m.mechanics:
+                    mech_target = m
+                    break
+            if mech_target:
+                # Merge: add stats to existing mech, remove the new minion
+                mech_target.attack += minion.attack
+                mech_target.health += minion.health
+                mech_target.max_health += minion.max_health
+                if minion.taunt:
+                    mech_target.taunt = True
+                if minion.divine_shield:
+                    mech_target.divine_shield = True
+                if minion.windfury:
+                    mech_target.windfury = True
+                if minion.lifesteal:
+                    mech_target.lifesteal = True
+                if minion.poisonous:
+                    mech_target.poisonous = True
+                player.board.remove(minion)
+
+        # CHOOSE_ONE: parse and apply first option as battlecry
+        if "CHOOSE_ONE" in mechanics:
+            from src.simulator.spell_parser import parse_choose_one_effects
+            choose_effects = parse_choose_one_effects(card_data.get("text", ""))
+            self._apply_battlecry_effects(state, player, minion, choose_effects)
+
+        # COLOSSAL: summon additional appendage tokens
+        if "COLOSSAL" in mechanics:
+            text = card_data.get("text", "") or ""
+            colossal_match = re.search(r'거대\s*\+(\d+)', text)
+            appendage_count = int(colossal_match.group(1)) if colossal_match else 1
+            for _ in range(appendage_count):
+                if not player.board_full:
+                    player.board.append(MinionState(
+                        card_id=card_data.get("card_id", "") + "_appendage",
+                        name=card_data.get("name", "") + " Appendage",
+                        attack=1, health=1, max_health=1,
+                        mana_cost=0, summoned_this_turn=True,
+                    ))
+
+        # EXCAVATE: simplified - draw a card as reward
+        if "EXCAVATE" in mechanics:
+            player.draw_card()
+
+        # QUICKDRAW: bonus if card was drawn this turn
+        card_id = card_data.get("card_id", "")
+        if "QUICKDRAW" in mechanics and card_id in player.drawn_this_turn:
+            from src.simulator.spell_parser import parse_quickdraw_effects
+            qd_effects = parse_quickdraw_effects(card_data.get("text", ""))
+            self._apply_battlecry_effects(state, player, minion, qd_effects)
+
+        # JADE_GOLEM: summon jade golem if card text mentions it
+        text = card_data.get("text", "") or ""
+        if "비취 골렘" in text:
+            self._summon_jade_golem(state, player)
+
+        # HERALD: summon a 1/1 Soldier token alongside
+        if "HERALD" in mechanics:
+            if not player.board_full:
+                player.board.append(MinionState(
+                    card_id="herald_soldier", name="Soldier",
+                    attack=1, health=1, max_health=1,
+                    mana_cost=0, summoned_this_turn=True,
+                ))
+
         # CORRUPT: mark hand cards with lower cost as corrupted
         card_cost = card_data.get("mana_cost", 0)
         self._check_corrupt_hand(player, card_cost)
@@ -496,6 +576,11 @@ class GameEngine:
         # SECRET: add to secrets list, don't resolve effects
         if "SECRET" in mechanics:
             player.secrets.append(card_data.get("card_id", ""))
+            player.cards_played_this_turn += 1
+            return
+
+        # QUEST: just spend mana and count as played, no effect tracking
+        if "QUEST" in mechanics:
             player.cards_played_this_turn += 1
             return
 
@@ -615,6 +700,56 @@ class GameEngine:
         # DISCOVER: pick from 3 random cards, add best to hand
         if "DISCOVER" in mechanics:
             self._discover(state, player)
+
+        # CHOOSE_ONE: parse and apply first option
+        if "CHOOSE_ONE" in mechanics:
+            from src.simulator.spell_parser import parse_choose_one_effects
+            choose_effects = parse_choose_one_effects(card_data.get("text", ""))
+            # Apply like spell effects
+            for eff in choose_effects:
+                if eff.effect_type == "damage":
+                    damage = eff.value + self._get_spell_power(state)
+                    if eff.target == "enemy_hero":
+                        opponent.hero.take_damage(damage)
+                    elif eff.target in ("enemy_minion", "auto") and opponent.board:
+                        t = max(opponent.board, key=lambda m: m.health)
+                        t.take_damage(damage)
+                    else:
+                        opponent.hero.take_damage(damage)
+                elif eff.effect_type == "draw":
+                    for _ in range(eff.value):
+                        player.draw_card()
+                elif eff.effect_type == "buff" and player.board:
+                    t = player.board[-1]
+                    t.attack += eff.value
+                    t.health += eff.value2
+                    t.max_health += eff.value2
+                elif eff.effect_type == "armor":
+                    player.hero.armor += eff.value
+                elif eff.effect_type == "heal":
+                    player.hero.health = min(player.hero.health + eff.value, player.hero.max_health)
+
+        # EXCAVATE: simplified - draw a card as reward
+        if "EXCAVATE" in mechanics:
+            player.draw_card()
+
+        # QUICKDRAW: bonus if card was drawn this turn
+        card_id = card_data.get("card_id", "")
+        if "QUICKDRAW" in mechanics and card_id in player.drawn_this_turn:
+            from src.simulator.spell_parser import parse_quickdraw_effects
+            qd_effects = parse_quickdraw_effects(card_data.get("text", ""))
+            for eff in qd_effects:
+                if eff.effect_type == "damage":
+                    damage = eff.value + self._get_spell_power(state)
+                    opponent.hero.take_damage(damage)
+                elif eff.effect_type == "draw":
+                    for _ in range(eff.value):
+                        player.draw_card()
+
+        # JADE_GOLEM: summon jade golem if card text mentions it
+        text = card_data.get("text", "") or ""
+        if "비취 골렘" in text:
+            self._summon_jade_golem(state, player)
 
         # CORRUPT: mark hand cards with lower cost as corrupted
         card_cost = card_data.get("mana_cost", 0)
@@ -815,6 +950,17 @@ class GameEngine:
             if "CORRUPT" in card_data.get("mechanics", []):
                 if card_data.get("mana_cost", 0) < played_cost:
                     player.corrupted_cards[card_id] = True
+
+    def _summon_jade_golem(self, state: GameState, player: PlayerState):
+        """Summon a Jade Golem with stats equal to player's jade counter, then increment (max 30)."""
+        player.jade_counter = min(player.jade_counter + 1, 30)
+        stats = player.jade_counter
+        if not player.board_full:
+            player.board.append(MinionState(
+                card_id="jade_golem", name="Jade Golem",
+                attack=stats, health=stats, max_health=stats,
+                mana_cost=0, summoned_this_turn=True,
+            ))
 
     def get_legal_actions(self, state: GameState) -> list:
         from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard

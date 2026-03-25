@@ -251,3 +251,30 @@ def parse_infuse_effects(text: str) -> list[SpellEffect]:
     if m:
         return parse_spell_effects(m.group(1))
     return []
+
+
+def parse_choose_one_effects(text: str) -> list[SpellEffect]:
+    """Parse choose-one text (선택 -). Returns effects of the first option."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    # Pattern: "선택 - A 또는 B" or "선택: A; B"
+    m = re.search(r'선택\s*[-:]\s*(.*?)(?:또는|;)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1).strip())
+    # Fallback: just get text after "선택 -"
+    m = re.search(r'선택\s*[-:]\s*(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1).strip())
+    return []
+
+
+def parse_quickdraw_effects(text: str) -> list[SpellEffect]:
+    """Parse quickdraw bonus effects (속사:)."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'속사[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1))
+    return []

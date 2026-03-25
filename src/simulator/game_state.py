@@ -149,6 +149,8 @@ class PlayerState:
     friendly_deaths_this_game: int = 0
     echo_cards: list[str] = field(default_factory=list)
     corrupted_cards: dict[str, bool] = field(default_factory=dict)
+    jade_counter: int = 0
+    drawn_this_turn: list[str] = field(default_factory=list)
 
     def draw_card(self) -> str | None:
         if not self.deck:
@@ -159,6 +161,7 @@ class PlayerState:
         if len(self.hand) >= HAND_LIMIT:
             return None
         self.hand.append(card)
+        self.drawn_this_turn.append(card)
         return card
 
     def to_dict(self) -> dict:
