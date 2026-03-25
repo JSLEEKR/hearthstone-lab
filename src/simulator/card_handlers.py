@@ -66,9 +66,35 @@ def _exarch_maladaar(engine, state, player, minion):
 
 
 def _high_cultist_herenn(engine, state, player, minion):
-    """TLC_810 High Cultist Herenn: summon 2 random minions."""
-    for _ in range(2):
-        _summon_token(player, "Cultist", 3, 3)
+    """TLC_810 High Cultist Herenn: Summon 2 Deathrattle minions from your deck. They fight!"""
+    from src.simulator.game_state import MinionState, BOARD_LIMIT
+    pulled = []
+    for i, card_id in enumerate(list(player.deck)):
+        card = engine.card_db.get(card_id, {})
+        if card.get("card_type") == "MINION" and "DEATHRATTLE" in card.get("mechanics", []):
+            pulled.append((i, card_id, card))
+            if len(pulled) >= 2:
+                break
+    summoned = []
+    # Remove from deck in reverse order to preserve indices
+    for idx, card_id, card in reversed(pulled):
+        player.deck.pop(idx)
+    for _, card_id, card in pulled:
+        if len(player.board) < BOARD_LIMIT:
+            m = MinionState(
+                card_id=card_id, name=card.get("name", "Minion"),
+                attack=card.get("attack", 1), health=card.get("health", 1),
+                max_health=card.get("health", 1), mana_cost=card.get("mana_cost", 0),
+                mechanics=list(card.get("mechanics", [])),
+                summoned_this_turn=True,
+            )
+            player.board.append(m)
+            summoned.append(m)
+    # They fight each other
+    if len(summoned) == 2:
+        a, b = summoned
+        a.take_damage(b.attack)
+        b.take_damage(a.attack)
 
 
 # ---------------------------------------------------------------------------
@@ -86,8 +112,9 @@ def _xortoth(engine, state, player, minion):
 
 
 def _aranna_thrill_seeker(engine, state, player, minion):
-    """VAC_501 Aranna Thrill Seeker: stat body only."""
-    pass
+    """VAC_501 Aranna Thrill Seeker: damage to hero redirected to random enemy.
+    Simplified: gain 5 armor (damage reduction equivalent)."""
+    player.hero.armor += 5
 
 
 def _entomologist_toru(engine, state, player, minion):
@@ -113,8 +140,11 @@ def _exarch_othaar(engine, state, player, minion):
 
 
 def _fandral_staghelm(engine, state, player, minion):
-    """CORE_OG_044 Fandral Staghelm: aura (stat body, tracked by engine)."""
-    pass
+    """CORE_OG_044 Fandral Staghelm: Choose One cards have both effects.
+    Simplified: give +2/+2 to the minion itself as value representation."""
+    minion.attack += 2
+    minion.health += 2
+    minion.max_health += 2
 
 
 def _ulfar(engine, state, player, minion):
@@ -145,9 +175,18 @@ def _halazzi(engine, state, player, minion):
 
 
 def _king_maluk(engine, state, player, minion):
-    """TIME_042 King Maluk: discard hand, draw 3 cards."""
+    """TIME_042 King Maluk: Discard your hand. Get Infinite Bananas."""
+    from src.simulator.game_state import HAND_LIMIT
     player.hand.clear()
-    _draw_cards(player, 3)
+    # Register banana token
+    if "token_Banana" not in engine.card_db:
+        engine.card_db["token_Banana"] = {
+            "card_id": "token_Banana", "name": "Banana", "card_type": "SPELL",
+            "mana_cost": 1, "text": "Give a minion +1/+1.",
+            "mechanics": [],
+        }
+    while len(player.hand) < HAND_LIMIT:
+        player.hand.append("token_Banana")
 
 
 def _king_plush(engine, state, player, minion):
@@ -165,8 +204,12 @@ def _king_plush(engine, state, player, minion):
 # ---------------------------------------------------------------------------
 
 def _puzzlemaster_khadgar(engine, state, player, minion):
-    """TOY_373 Puzzlemaster Khadgar: gain 6 armor."""
-    player.hero.armor += 6
+    """TOY_373 Puzzlemaster Khadgar: Equip a 0/6 Orb of Wisdom."""
+    from src.simulator.game_state import WeaponState
+    player.hero.weapon = WeaponState(
+        card_id="token_Orb_of_Wisdom", name="Orb of Wisdom",
+        attack=0, durability=6,
+    )
 
 
 def _portalmancer_skyla(engine, state, player, minion):
@@ -197,8 +240,13 @@ def _aessina(engine, state, player, minion):
 # ---------------------------------------------------------------------------
 
 def _zilliax(engine, state, player, minion):
-    """TOY_330 Zilliax Deluxe 3000: stat body only."""
-    pass
+    """TOY_330 Zilliax Deluxe 3000: default modules — rush + divine shield."""
+    minion.rush = True
+    minion.divine_shield = True
+    if "RUSH" not in minion.mechanics:
+        minion.mechanics.append("RUSH")
+    if "DIVINE_SHIELD" not in minion.mechanics:
+        minion.mechanics.append("DIVINE_SHIELD")
 
 
 def _brightwing(engine, state, player, minion):
@@ -212,9 +260,18 @@ def _brightwing(engine, state, player, minion):
 
 
 def _king_mukla(engine, state, player, minion):
-    """CORE_EX1_014 King Mukla: opponent draws 2."""
+    """CORE_EX1_014 King Mukla: Give your opponent 2 Bananas."""
+    from src.simulator.game_state import HAND_LIMIT
     opp = _get_opponent(state, player)
-    _draw_cards(opp, 2)
+    if "token_Banana" not in engine.card_db:
+        engine.card_db["token_Banana"] = {
+            "card_id": "token_Banana", "name": "Banana", "card_type": "SPELL",
+            "mana_cost": 1, "text": "Give a minion +1/+1.",
+            "mechanics": [],
+        }
+    for _ in range(2):
+        if len(opp.hand) < HAND_LIMIT:
+            opp.hand.append("token_Banana")
 
 
 def _egg_of_khelos(engine, state, player, minion):
@@ -237,14 +294,19 @@ def _black_knight(engine, state, player, minion):
 
 
 def _tindral_sageswift(engine, state, player, minion):
-    """FIR_958 Tindral Sageswift: deathrattle deal 1 to all enemies."""
+    """FIR_958 Tindral Sageswift: deathrattle deal 1 to all enemies (4 on opponent's turn).
+    Register deathrattle text so engine can parse it."""
     if "DEATHRATTLE" not in minion.mechanics:
         minion.mechanics.append("DEATHRATTLE")
+    # Register parseable deathrattle text in card_db
+    engine.card_db[minion.card_id] = engine.card_db.get(minion.card_id, {})
+    engine.card_db[minion.card_id]["text"] = "죽음의 메아리: 모든 적 하수인에게 피해를 2 줍니다"
 
 
 def _elise_the_navigator(engine, state, player, minion):
-    """TLC_100 Elise the Navigator: draw 2."""
-    _draw_cards(player, 2)
+    """TLC_100 Elise the Navigator: If starting deck had 10 different costs, Craft a Location.
+    Simplified: summon a 0/3 taunt token representing the location."""
+    _summon_token(player, "Map Location", 0, 3, taunt=True)
 
 
 def _torga(engine, state, player, minion):
@@ -307,7 +369,10 @@ def _the_exodar(engine, state, player, minion):
 
 
 def _velen(engine, state, player, minion):
-    """GDB_131 Velen: draw 2 + deal 3 to all enemies."""
+    """GDB_131 Velen: Deathrattle: trigger all Battlecries and Deathrattles of other Draenei.
+    Ensure DEATHRATTLE mechanic is set. Approximation: deal 3 to all enemies + draw 2."""
+    if "DEATHRATTLE" not in minion.mechanics:
+        minion.mechanics.append("DEATHRATTLE")
     _draw_cards(player, 2)
     _deal_damage_to_all_enemies(state, player, 3)
 
@@ -322,8 +387,11 @@ def _endbringer_umbra(engine, state, player, minion):
 
 
 def _mayor_noggenfogger(engine, state, player, minion):
-    """CORE_CFM_670 Mayor Noggenfogger: stat body only (too complex)."""
-    pass
+    """CORE_CFM_670 Mayor Noggenfogger: All targets are chosen randomly.
+    Simplified: give all friendly minions the FORGETFUL mechanic."""
+    for m in player.board:
+        if "FORGETFUL" not in m.mechanics:
+            m.mechanics.append("FORGETFUL")
 
 
 def _avatar_of_hearthstone(engine, state, player, minion):
@@ -354,9 +422,27 @@ def _endtime_murozond(engine, state, player, minion):
 
 
 def _travelmaster_dungar(engine, state, player, minion):
-    """WORK_043 Travelmaster Dungar: summon 3 tokens."""
-    for _ in range(3):
-        _summon_token(player, "Adventurer", 2, 2)
+    """WORK_043 Travelmaster Dungar: Summon 3 minions from different expansions from your deck."""
+    from src.simulator.game_state import MinionState, BOARD_LIMIT
+    pulled = []
+    for i, card_id in enumerate(list(player.deck)):
+        card = engine.card_db.get(card_id, {})
+        if card.get("card_type") == "MINION":
+            pulled.append((i, card_id, card))
+            if len(pulled) >= 3:
+                break
+    for idx, card_id, card in reversed(pulled):
+        player.deck.pop(idx)
+    for _, card_id, card in pulled:
+        if len(player.board) < BOARD_LIMIT:
+            m = MinionState(
+                card_id=card_id, name=card.get("name", "Minion"),
+                attack=card.get("attack", 1), health=card.get("health", 1),
+                max_health=card.get("health", 1), mana_cost=card.get("mana_cost", 0),
+                mechanics=list(card.get("mechanics", [])),
+                summoned_this_turn=True,
+            )
+            player.board.append(m)
 
 
 # ---------------------------------------------------------------------------
@@ -378,12 +464,17 @@ def _toy_captain_tarim(engine, state, player, minion):
 
 
 def _tirion_fordring(engine, state, player, minion):
-    """CORE_EX1_383 Tirion Fordring: deathrattle equip 5/3 weapon."""
+    """CORE_EX1_383 Tirion Fordring: deathrattle equip 5/3 Ashbringer weapon.
+    Register deathrattle in card_db for engine parsing. Also handle via
+    special deathrattle: on death, equip weapon directly."""
     if "DEATHRATTLE" not in minion.mechanics:
         minion.mechanics.append("DEATHRATTLE")
-    # The deathrattle effect is handled here as a simplified immediate equip
-    # since deathrattle parsing won't know about this. Mark for engine.
-    pass
+    # Register a custom deathrattle handler by setting text the parser can't handle,
+    # so we store the weapon equip intent. The actual equip happens in remove_dead_minions
+    # via a special card_db flag.
+    db_entry = dict(engine.card_db.get(minion.card_id, {}))
+    db_entry["_deathrattle_weapon"] = {"card_id": "tirion_ashbringer", "name": "Ashbringer", "attack": 5, "durability": 3}
+    engine.card_db[minion.card_id] = db_entry
 
 
 def _ursol(engine, state, player, minion):
@@ -407,13 +498,24 @@ def _chillin_voljin(engine, state, player, minion):
 
 
 def _narain_soothfancy(engine, state, player, minion):
-    """VAC_420 Narain Soothfancy: draw 2."""
-    _draw_cards(player, 2)
+    """VAC_420 Narain Soothfancy: Get 2 Prophecies that become your next cards.
+    Simplified: generate 2 random cards and add to hand."""
+    from src.simulator.game_state import HAND_LIMIT
+    for _ in range(2):
+        if len(player.hand) >= HAND_LIMIT:
+            break
+        card = _random_minion_from_db(engine)
+        if card:
+            player.hand.append(card.get("card_id", ""))
 
 
 def _timewinder_zarimi(engine, state, player, minion):
-    """TOY_385 Timewinder Zarimi: draw 3 cards as bonus."""
-    _draw_cards(player, 3)
+    """TOY_385 Timewinder Zarimi: If you've played 8 other Dragons, take an extra turn.
+    Approximation: if 8+ cards played this game, give all friendly minions windfury."""
+    total_played = player.cards_played_this_turn + state.turn  # rough estimate of total cards played
+    if total_played >= 8:
+        for m in player.board:
+            m.windfury = True
 
 
 def _eternus(engine, state, player, minion):
@@ -439,8 +541,14 @@ def _natalie_seline(engine, state, player, minion):
 
 
 def _tyrande(engine, state, player, minion):
-    """EDR_464 Tyrande: draw 3 cards."""
-    _draw_cards(player, 3)
+    """EDR_464 Tyrande: Your next 3 spells are cast twice.
+    Approximation: give +3 spell power via SPELLPOWER mechanic."""
+    if "SPELLPOWER" not in minion.mechanics:
+        minion.mechanics.append("SPELLPOWER")
+    # Register spell power +3 in card_db text so _get_spell_power parses it
+    db_entry = dict(engine.card_db.get(minion.card_id, {}))
+    db_entry["text"] = db_entry.get("text", "") + " 주문 공격력 +3"
+    engine.card_db[minion.card_id] = db_entry
 
 
 # ---------------------------------------------------------------------------
@@ -477,8 +585,10 @@ def _opu_the_unseen(engine, state, player, minion):
 # ---------------------------------------------------------------------------
 
 def _bralma_searstone(engine, state, player, minion):
-    """TLC_228 Bralma Searstone: aura (stat body only)."""
-    pass
+    """TLC_228 Bralma Searstone: aura — elemental cards deal +1 damage.
+    Simplified as spell power +1 (functionally equivalent for simulation)."""
+    if "SPELLPOWER" not in minion.mechanics:
+        minion.mechanics.append("SPELLPOWER")
 
 
 def _farseer_nobundo(engine, state, player, minion):
@@ -489,13 +599,15 @@ def _farseer_nobundo(engine, state, player, minion):
 
 
 def _kragwa(engine, state, player, minion):
-    """CORE_TRL_345 Krag'wa: draw 2."""
+    """CORE_TRL_345 Krag'wa: Return all spells you cast last turn to your hand.
+    We can't track last turn's spells; draw 2 as average approximation."""
     _draw_cards(player, 2)
 
 
 def _shudderblock(engine, state, player, minion):
-    """TOY_501 Shudderblock: draw 2."""
-    _draw_cards(player, 2)
+    """TOY_501 Shudderblock: Your next Battlecry triggers 3 times.
+    Approximation: give the player 3 extra mana (representing 3x battlecry value)."""
+    player.mana += 3
 
 
 def _murmur(engine, state, player, minion):
@@ -523,14 +635,17 @@ def _game_master_nemsy(engine, state, player, minion):
 
 
 def _archimonde(engine, state, player, minion):
-    """GDB_128 Archimonde: summon 3 demon tokens."""
+    """GDB_128 Archimonde: Summon all Demons you played this game that didn't start in your deck.
+    Approximation: summon 3 random 6/6 demon tokens (mid-to-late game demons)."""
     for _ in range(3):
-        _summon_token(player, "Demon", 3, 3)
+        _summon_token(player, "Demon", 6, 6)
 
 
 def _party_planner_vona(engine, state, player, minion):
-    """VAC_945 Party Planner Vona: summon a 4/4 token."""
-    _summon_token(player, "Imp Gang", 4, 4)
+    """VAC_945 Party Planner Vona: If you took 8 damage on your turn, summon Ouroboros (8/8).
+    Check if player hero health < 22 (lost 8+ HP) as approximation."""
+    if player.hero.health + player.hero.armor < 22:
+        _summon_token(player, "Ouroboros", 8, 8)
 
 
 def _agamaggan(engine, state, player, minion):
