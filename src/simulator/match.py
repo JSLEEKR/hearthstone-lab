@@ -109,8 +109,8 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict)
         elif action.attacker_idx < len(player.board):
             attacker = player.board[action.attacker_idx]
             if action.target_is_hero:
-                engine.attack_hero(attacker, opponent.hero)
+                engine.attack_hero(attacker, opponent.hero, state=state)
             elif action.target_idx < len(opponent.board):
-                engine.resolve_combat(attacker, opponent.board[action.target_idx])
+                engine.resolve_combat(attacker, opponent.board[action.target_idx], state=state)
     elif isinstance(action, HeroPower):
         engine.use_hero_power(state)

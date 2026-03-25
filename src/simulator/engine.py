@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 import random
 from typing import TYPE_CHECKING
-from src.simulator.game_state import GameState, MinionState, PlayerState, HeroState, WeaponState
+from src.simulator.game_state import GameState, MinionState, PlayerState, HeroState, WeaponState, BOARD_LIMIT
 
 if TYPE_CHECKING:
     from src.simulator.actions import PlayCard, Attack
@@ -32,6 +32,7 @@ class GameEngine:
         player.overload = 0
         player.hero.hero_power_used = False
         player.hero.attack = 0
+        player.hero.attacks_this_turn = 0
         player.draw_card()
 
     def end_turn(self, state: GameState):
@@ -41,25 +42,74 @@ class GameEngine:
             m.summoned_this_turn = False
             if m.frozen:
                 m.frozen = False
+        player.hero.attack = 0
+        player.hero.attacks_this_turn = 0
         state.switch_turn()
 
-    def resolve_combat(self, attacker: MinionState, defender: MinionState):
-        defender.take_damage(attacker.attack)
-        attacker.take_damage(defender.attack)
+    def resolve_combat(self, attacker: MinionState, defender: MinionState,
+                       state: GameState | None = None):
+        # FORGETFUL: 50% chance to attack a random other target
+        if "FORGETFUL" in attacker.mechanics and state is not None:
+            if random.random() < 0.5:
+                opponent = state.opponent
+                other_targets = [m for m in opponent.board if m is not defender]
+                if not defender.is_dead:
+                    other_targets.append(opponent.hero)
+                if other_targets:
+                    new_target = random.choice(other_targets)
+                    if isinstance(new_target, HeroState):
+                        self.attack_hero(attacker, new_target, state=state)
+                        return
+                    else:
+                        defender = new_target
+
+        # STEALTH removal on any attack
+        if attacker.stealth:
+            attacker.stealth = False
+
+        damage_to_defender = defender.take_damage(attacker.attack)
+        damage_to_attacker = attacker.take_damage(defender.attack)
         attacker.attacks_this_turn += 1
 
-    def attack_hero(self, attacker: MinionState, hero: HeroState):
-        hero.take_damage(attacker.attack)
+        # POISONOUS
+        if attacker.poisonous and damage_to_defender > 0:
+            defender.health = 0
+        if defender.poisonous and damage_to_attacker > 0:
+            attacker.health = 0
+
+        # LIFESTEAL
+        if attacker.lifesteal and damage_to_defender > 0 and state is not None:
+            hero = state.current_player.hero
+            hero.health = min(hero.health + damage_to_defender, hero.max_health)
+
+        # FREEZE
+        if "FREEZE" in attacker.mechanics:
+            defender.frozen = True
+        if "FREEZE" in defender.mechanics:
+            attacker.frozen = True
+
+        # ENRAGE
+        if state is not None:
+            self.apply_enrage(state)
+
+    def attack_hero(self, attacker: MinionState, hero: HeroState,
+                    state: GameState | None = None):
+        damage_dealt = hero.take_damage(attacker.attack)
         attacker.attacks_this_turn += 1
         if attacker.stealth:
             attacker.stealth = False
+
+        # LIFESTEAL
+        if attacker.lifesteal and damage_dealt > 0 and state is not None:
+            owner_hero = state.current_player.hero
+            owner_hero.health = min(owner_hero.health + damage_dealt, owner_hero.max_health)
 
     def hero_attack_minion(self, state: GameState, target: MinionState):
         player = state.current_player
         attack = player.hero.total_attack
         target.take_damage(attack)
         player.hero.take_damage(target.attack)
-        player.hero.attack = 0
+        player.hero.attacks_this_turn += 1
         if player.hero.weapon and not player.hero.weapon.is_broken:
             player.hero.weapon.durability -= 1
             if player.hero.weapon.is_broken:
@@ -70,15 +120,34 @@ class GameEngine:
         opponent = state.opponent
         attack = player.hero.total_attack
         opponent.hero.take_damage(attack)
-        player.hero.attack = 0
+        player.hero.attacks_this_turn += 1
         if player.hero.weapon and not player.hero.weapon.is_broken:
             player.hero.weapon.durability -= 1
             if player.hero.weapon.is_broken:
                 player.hero.weapon = None
 
     def remove_dead_minions(self, state: GameState):
-        state.player1.board = [m for m in state.player1.board if not m.is_dead]
-        state.player2.board = [m for m in state.player2.board if not m.is_dead]
+        for player in (state.player1, state.player2):
+            new_board: list[MinionState] = []
+            for m in player.board:
+                if m.is_dead:
+                    # REBORN: respawn with 1 health at same position
+                    if m.reborn and len(new_board) < BOARD_LIMIT:
+                        reborn_copy = MinionState(
+                            card_id=m.card_id, name=m.name,
+                            attack=m.attack - m.enrage_bonus, health=1, max_health=1,
+                            mana_cost=m.mana_cost, taunt=m.taunt,
+                            divine_shield=False, stealth=m.stealth,
+                            windfury=m.windfury, lifesteal=m.lifesteal,
+                            poisonous=m.poisonous, reborn=False,
+                            rush=m.rush, charge=m.charge,
+                            mechanics=list(m.mechanics),
+                            summoned_this_turn=True,
+                        )
+                        new_board.append(reborn_copy)
+                else:
+                    new_board.append(m)
+            player.board = new_board
 
     def play_minion(self, state: GameState, card_data: dict) -> MinionState | None:
         player = state.current_player
@@ -97,11 +166,31 @@ class GameEngine:
         )
         player.board.append(minion)
         player.mana -= card_data.get("mana_cost", 0)
+        # OVERLOAD
+        overload = card_data.get("overload", 0)
+        if overload:
+            player.overload += overload
         return minion
 
     def play_spell(self, state: GameState, card_data: dict, target=None):
         player = state.current_player
         player.mana -= card_data.get("mana_cost", 0)
+        # OVERLOAD
+        overload = card_data.get("overload", 0)
+        if overload:
+            player.overload += overload
+
+    def apply_enrage(self, state: GameState):
+        """Check all minions for enrage status and apply/remove bonus."""
+        for player in (state.player1, state.player2):
+            for m in player.board:
+                if "ENRAGED" in m.mechanics:
+                    if m.health < m.max_health and m.enrage_bonus == 0:
+                        m.enrage_bonus = 2
+                        m.attack += 2
+                    elif m.health >= m.max_health and m.enrage_bonus > 0:
+                        m.attack -= m.enrage_bonus
+                        m.enrage_bonus = 0
 
     def use_hero_power(self, state: GameState, target=None):
         player = state.current_player
@@ -182,7 +271,7 @@ class GameEngine:
                 actions.append(Attack(attacker_idx=i, target_idx=-1, target_is_hero=True))
 
         # Hero attack with weapon/attack
-        if player.hero.total_attack > 0:
+        if player.hero.total_attack > 0 and player.hero.attacks_this_turn == 0:
             for j, target in enumerate(opponent.board):
                 if has_taunt and not target.taunt:
                     continue

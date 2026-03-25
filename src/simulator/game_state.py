@@ -26,6 +26,7 @@ class MinionState:
     dormant: bool = False
     attacks_this_turn: int = 0
     summoned_this_turn: bool = True
+    enrage_bonus: int = 0
     mechanics: list[str] = field(default_factory=list)
 
     def take_damage(self, amount: int) -> int:
@@ -41,6 +42,8 @@ class MinionState:
 
     @property
     def can_attack(self) -> bool:
+        if "CANT_ATTACK" in self.mechanics:
+            return False
         if self.frozen or self.dormant or self.attack <= 0:
             return False
         max_attacks = 2 if self.windfury else 1
@@ -86,6 +89,7 @@ class HeroState:
     attack: int = 0
     hero_power_cost: int = 2
     hero_power_used: bool = False
+    attacks_this_turn: int = 0
     weapon: WeaponState | None = None
 
     def take_damage(self, amount: int) -> int:
