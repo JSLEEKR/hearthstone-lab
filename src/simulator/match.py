@@ -89,7 +89,7 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict)
             card_data = card_db.get(card_id, {})
             card_type = card_data.get("card_type", "MINION")
             if card_type == "MINION":
-                engine.play_minion(state, card_data)
+                engine.play_minion(state, card_data, hand_position=action.hand_idx)
             elif card_type == "SPELL":
                 engine.play_spell(state, card_data)
             elif card_type == "WEAPON":

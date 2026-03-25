@@ -80,10 +80,14 @@ class GameEngine:
     def end_turn(self, state: GameState):
         player = state.current_player
         for m in player.board:
+            # FREEZE: only thaw if the minion didn't attack this turn
+            # (frozen minions skip their attack, then unfreeze)
+            if m.frozen:
+                if m.attacks_this_turn == 0:
+                    m.frozen = False
+                # If they attacked while frozen (shouldn't happen), keep frozen
             m.attacks_this_turn = 0
             m.summoned_this_turn = False
-            if m.frozen:
-                m.frozen = False
         player.hero.attack = 0
         player.hero.attacks_this_turn = 0
         # Remove echo copies from hand at end of turn
@@ -146,6 +150,11 @@ class GameEngine:
 
     def attack_hero(self, attacker: MinionState, hero: HeroState,
                     state: GameState | None = None):
+        # Check secrets before attack resolves
+        if state is not None:
+            self.check_secrets(state, "attack_hero", attacker=attacker)
+            if attacker.is_dead:
+                return  # Secret killed the attacker
         damage_dealt = hero.take_damage(attacker.attack)
         attacker.attacks_this_turn += 1
         if attacker.stealth:
@@ -298,6 +307,9 @@ class GameEngine:
         if "SPELLBURST" in mechanics:
             minion.spellburst_active = True
 
+        # Check opponent secrets on minion play
+        self.check_secrets(state, "play_minion", minion=minion)
+
         self.apply_auras(state)
         return minion
 
@@ -360,8 +372,12 @@ class GameEngine:
                 if eff.target == "enemy_hero":
                     opponent.hero.take_damage(damage)
                 elif eff.target == "enemy_minion" and opponent.board:
-                    t = max(opponent.board, key=lambda m: m.health) if not target else target
-                    t.take_damage(damage)
+                    if target and isinstance(target, MinionState) and self._can_be_targeted(target):
+                        target.take_damage(damage)
+                    else:
+                        targetable = [m for m in opponent.board if self._can_be_targeted(m)]
+                        if targetable:
+                            max(targetable, key=lambda m: m.health).take_damage(damage)
                 elif eff.target == "auto":
                     opponent.hero.take_damage(damage)
 
@@ -402,10 +418,13 @@ class GameEngine:
 
             elif eff.effect_type == "silence":
                 if target and isinstance(target, MinionState):
-                    self.silence_minion(target)
+                    if self._can_be_targeted(target):
+                        self.silence_minion(target)
                 elif opponent.board:
-                    t = max(opponent.board, key=lambda m: m.health)
-                    self.silence_minion(t)
+                    targetable = [m for m in opponent.board if self._can_be_targeted(m)]
+                    if targetable:
+                        t = max(targetable, key=lambda m: m.health)
+                        self.silence_minion(t)
 
             elif eff.effect_type == "summon" and not player.board_full:
                 player.board.append(MinionState(
@@ -448,6 +467,50 @@ class GameEngine:
                 from src.simulator.spell_parser import parse_spellburst_effects
                 effects = parse_spellburst_effects(self.card_db.get(m.card_id, {}).get("text", ""))
                 self._apply_battlecry_effects(state, player, m, effects)
+
+    def check_secrets(self, state: GameState, trigger: str, **ctx):
+        """Check and trigger opponent secrets based on game events.
+
+        Supported triggers:
+        - 'attack_hero': when opponent's hero is attacked
+        - 'play_minion': when a minion is played
+        - 'play_spell': when a spell is cast (targeting hero)
+        """
+        opponent = state.opponent
+        if not opponent.secrets:
+            return
+
+        triggered = None
+        for secret_id in opponent.secrets:
+            secret_data = self.card_db.get(secret_id, {})
+            text = (secret_data.get("text", "") or "").lower()
+
+            if trigger == "attack_hero":
+                # Ice Block style: prevent lethal / redirect attack
+                # Explosive Trap: deal damage to attacker
+                if "공격" in text and "영웅" in text:
+                    triggered = secret_id
+                    # Simple: deal 2 damage to all enemy minions
+                    attacker = ctx.get("attacker")
+                    if attacker and isinstance(attacker, MinionState):
+                        attacker.take_damage(2)
+                    break
+            elif trigger == "play_minion":
+                # Mirror Entity / Snipe style
+                if "하수인" in text and ("소환" in text or "내면" in text):
+                    triggered = secret_id
+                    minion = ctx.get("minion")
+                    if minion:
+                        minion.take_damage(4)  # Snipe-style
+                    break
+            elif trigger == "play_spell":
+                # Counterspell style
+                if "주문" in text and ("무효" in text or "방해" in text):
+                    triggered = secret_id
+                    break
+
+        if triggered:
+            opponent.secrets.remove(triggered)
 
     def apply_enrage(self, state: GameState):
         """Check all minions for enrage status and apply/remove bonus."""
