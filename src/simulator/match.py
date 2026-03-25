@@ -39,7 +39,7 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
     log = GameEventLog()
 
     # Log game start
-    log.append(0, -1, "GAME_START", "game", hero_a=hero_a, hero_b=hero_b)
+    log and log.append(0, -1, "GAME_START", "game", hero_a=hero_a, hero_b=hero_b)
 
     engine.start_game(state)
 
@@ -47,13 +47,13 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
     keep_1 = ai.mulligan(state.player1.hand, card_db)
     returned_1 = [c for c in state.player1.hand if c not in keep_1]
     _do_mulligan(state.player1, keep_1)
-    log.append(0, 0, "MULLIGAN", "game",
+    log and log.append(0, 0, "MULLIGAN", "game",
                kept=len(keep_1), returned=len(returned_1))
 
     keep_2 = ai.mulligan(state.player2.hand, card_db)
     returned_2 = [c for c in state.player2.hand if c not in keep_2]
     _do_mulligan(state.player2, keep_2)
-    log.append(0, 1, "MULLIGAN", "game",
+    log and log.append(0, 1, "MULLIGAN", "game",
                kept=len(keep_2), returned=len(returned_2))
 
     turn_count = 0
@@ -62,17 +62,17 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
         turn_count += 1
 
         p = state.current_player
-        log.append(turn_count, state.current_player_idx, "TURN_START", "game",
+        log and log.append(turn_count, state.current_player_idx, "TURN_START", "game",
                    mana=p.mana, hand_size=len(p.hand))
 
         # Log draw (start_turn draws a card)
         if p.drawn_this_turn:
             card_id = p.drawn_this_turn[-1]
             card_name = card_db.get(card_id, {}).get("name", card_id)
-            log.append(turn_count, state.current_player_idx, "DRAW", card_id,
+            log and log.append(turn_count, state.current_player_idx, "DRAW", card_id,
                        name=card_name)
         elif p.fatigue_counter > 0:
-            log.append(turn_count, state.current_player_idx, "FATIGUE", "fatigue",
+            log and log.append(turn_count, state.current_player_idx, "FATIGUE", "fatigue",
                        damage=p.fatigue_counter)
 
         action_count = 0
@@ -94,7 +94,7 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
         # Log turn end with board state summary
         cur = state.current_player
         opp = state.opponent
-        log.append(turn_count, state.current_player_idx, "TURN_END", "game",
+        log and log.append(turn_count, state.current_player_idx, "TURN_END", "game",
                    board_size=len(cur.board), opp_board_size=len(opp.board),
                    hero_hp=cur.hero.health, opp_hero_hp=opp.hero.health)
 
@@ -107,7 +107,7 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
         elif state.winner_idx == 1:
             winner = "B"
 
-    log.append(turn_count, -1, "GAME_OVER", "game",
+    log and log.append(turn_count, -1, "GAME_OVER", "game",
                winner=winner or "draw", final_turn=turn_count,
                p1_hp=state.player1.hero.health, p2_hp=state.player2.hero.health)
 
@@ -133,7 +133,7 @@ def _do_mulligan(player: PlayerState, keep: list[str]):
 
 
 def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
-                    log: GameEventLog, turn_count: int):
+                    log: GameEventLog | None = None, turn_count: int = 0):
     if isinstance(action, PlayCard):
         player = state.current_player
         if action.hand_idx < len(player.hand):
@@ -145,13 +145,13 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
 
             if card_type == "MINION":
                 engine.play_minion(state, card_data, hand_position=action.hand_idx)
-                log.append(turn_count, state.current_player_idx, "PLAY_MINION", card_id,
+                log and log.append(turn_count, state.current_player_idx, "PLAY_MINION", card_id,
                            name=card_name, cost=cost,
                            attack=card_data.get("attack", 0),
                            health=card_data.get("health", 0))
             elif card_type == "SPELL":
                 engine.play_spell(state, card_data)
-                log.append(turn_count, state.current_player_idx, "PLAY_SPELL", card_id,
+                log and log.append(turn_count, state.current_player_idx, "PLAY_SPELL", card_id,
                            name=card_name, cost=cost)
             elif card_type == "WEAPON":
                 player.hero.weapon = WeaponState(
@@ -162,7 +162,7 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
                 if overload:
                     player.overload += overload
                 player.cards_played_this_turn += 1
-                log.append(turn_count, state.current_player_idx, "PLAY_WEAPON", card_id,
+                log and log.append(turn_count, state.current_player_idx, "PLAY_WEAPON", card_id,
                            name=card_name, cost=cost)
 
     elif isinstance(action, Attack):
@@ -172,13 +172,13 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
             attacker_name = player.hero.hero_class + " Hero"
             if action.target_is_hero:
                 dmg = player.hero.total_attack
-                log.append(turn_count, state.current_player_idx, "ATTACK", "hero",
+                log and log.append(turn_count, state.current_player_idx, "ATTACK", "hero",
                            target="enemy_hero", damage=dmg, attacker_name=attacker_name)
                 engine.hero_attack_hero(state)
             elif action.target_idx < len(opponent.board):
                 target = opponent.board[action.target_idx]
                 dmg = player.hero.total_attack
-                log.append(turn_count, state.current_player_idx, "ATTACK", "hero",
+                log and log.append(turn_count, state.current_player_idx, "ATTACK", "hero",
                            target=target.card_id, damage=dmg,
                            attacker_name=attacker_name, target_name=target.name)
                 engine.hero_attack_minion(state, opponent.board[action.target_idx])
@@ -186,12 +186,12 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
             attacker = player.board[action.attacker_idx]
             if action.target_is_hero:
                 dmg = attacker.attack
-                log.append(turn_count, state.current_player_idx, "ATTACK", attacker.card_id,
+                log and log.append(turn_count, state.current_player_idx, "ATTACK", attacker.card_id,
                            target="enemy_hero", damage=dmg, attacker_name=attacker.name)
                 engine.attack_hero(attacker, opponent.hero, state=state)
             elif action.target_idx < len(opponent.board):
                 defender = opponent.board[action.target_idx]
-                log.append(turn_count, state.current_player_idx, "ATTACK", attacker.card_id,
+                log and log.append(turn_count, state.current_player_idx, "ATTACK", attacker.card_id,
                            target=defender.card_id, damage=attacker.attack,
                            attacker_name=attacker.name, target_name=defender.name)
                 engine.resolve_combat(attacker, opponent.board[action.target_idx], state=state)
@@ -201,7 +201,7 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
         if action.hand_idx < len(player.hand) and player.mana >= 1 and player.deck:
             card_id = player.hand.pop(action.hand_idx)
             card_name = card_db.get(card_id, {}).get("name", card_id)
-            log.append(turn_count, state.current_player_idx, "TRADE", card_id,
+            log and log.append(turn_count, state.current_player_idx, "TRADE", card_id,
                        name=card_name)
             player.deck.append(card_id)
             random.shuffle(player.deck)
@@ -214,7 +214,7 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
             card_id = player.hand[action.hand_idx]
             card_data = card_db.get(card_id, {})
             card_name = card_data.get("name", card_id)
-            log.append(turn_count, state.current_player_idx, "FORGE", card_id,
+            log and log.append(turn_count, state.current_player_idx, "FORGE", card_id,
                        name=card_name)
             forged_id = card_id + "_forged"
             if forged_id not in card_db:
@@ -234,5 +234,5 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
 
     elif isinstance(action, HeroPower):
         player = state.current_player
-        log.append(turn_count, state.current_player_idx, "HERO_POWER", player.hero.hero_class)
+        log and log.append(turn_count, state.current_player_idx, "HERO_POWER", player.hero.hero_class)
         engine.use_hero_power(state)
