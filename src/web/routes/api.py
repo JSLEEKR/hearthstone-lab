@@ -90,10 +90,12 @@ def _clean_card_text(text: str) -> str:
         text = text.split('@')[0]
     # $1 -> 1 (damage/heal numbers), #1 -> 1 (buff numbers)
     text = re.sub(r'[\$#](\d+)', r'\1', text)
-    # {0}|1(을,를) 예고합니다 -> "카드를 예고합니다"
-    text = re.sub(r'\{0\}\|1\(([^,)]+),([^)]+)\)', r'카드\1', text)
+    # {0}|1(을,를) 예고합니다 -> "카드를 예고합니다" (카드 = no 받침 -> 2nd particle)
+    text = re.sub(r'\{0\}\|1\(([^,)]+),([^)]+)\)', r'카드\2', text)
     # {0}, {1} etc. (progress counters, card refs) -> remove
     text = re.sub(r'\{\d+\}', '', text)
+    # Empty parentheses left over from placeholder removal
+    text = re.sub(r'\(\s*\)', '', text)
     # Strip HTML tags like <b>, </b>, <i>, </i>
     text = re.sub(r'<[^>]+>', '', text)
     # [x] formatting hint
