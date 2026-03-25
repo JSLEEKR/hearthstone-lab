@@ -8,7 +8,7 @@ from src.db.tables import Card, Deck, DeckCard
 router = APIRouter()
 
 
-EXCLUDED_SETS = {"HERO_SKINS", "PLACEHOLDER_202204"}
+EXCLUDED_SETS = {"HERO_SKINS"}
 
 RARITY_COLORS = {
     "COMMON": "#888", "RARE": "#0070dd", "EPIC": "#a335ee",
@@ -48,7 +48,7 @@ SET_ORDER = [
     # 2014
     "GVG", "NAXX",
     # Evergreen
-    "CORE", "EXPERT1", "LEGACY", "VANILLA",
+    "CORE", "PLACEHOLDER_202204", "EXPERT1", "LEGACY", "VANILLA",
     # Other
     "DEMON_HUNTER_INITIATE", "EVENT",
 ]
@@ -75,7 +75,7 @@ SET_NAME_KO = {
     "GREAT_DARK_BEYOND": "거대한 어둠 너머", "RETURN_TO_UN_GORO": "운고로 귀환",
     "CATACLYSM": "대격변", "DEMON_HUNTER_INITIATE": "악마사냥꾼 입문",
     "EMERALD_DREAM": "에메랄드 꿈속으로",
-    "EVENT": "이벤트",
+    "EVENT": "이벤트", "PLACEHOLDER_202204": "과거 코어셋",
 }
 
 
@@ -88,11 +88,11 @@ def _clean_card_text(text: str) -> str:
     # Multiple text variants separated by @ (quest stages etc.) - keep first
     if '@' in text:
         text = text.split('@')[0]
-    # $1 -> 1 (damage/heal numbers)
-    text = re.sub(r'\$(\d+)', r'\1', text)
-    # {0}|1(을,를) -> (conditional Korean particles) - simplify
-    text = re.sub(r'\{0\}\|1\(([^,)]+),([^)]+)\)', r'\1', text)
-    # {0} placeholders (progress counters etc.)
+    # $1 -> 1 (damage/heal numbers), #1 -> 1 (buff numbers)
+    text = re.sub(r'[\$#](\d+)', r'\1', text)
+    # {0}|1(을,를) 예고합니다 -> "카드를 예고합니다"
+    text = re.sub(r'\{0\}\|1\(([^,)]+),([^)]+)\)', r'카드\1', text)
+    # {0}, {1} etc. (progress counters, card refs) -> remove
     text = re.sub(r'\{\d+\}', '', text)
     # Strip HTML tags like <b>, </b>, <i>, </i>
     text = re.sub(r'<[^>]+>', '', text)
@@ -112,7 +112,8 @@ def _query_cards(db: Session, q: str, hero_class: str, cost: int | None,
         Card.set_name.notin_(EXCLUDED_SETS),
     )
     if not card_type:
-        query = query.filter(Card.card_type != "HERO")
+        # Hide hero skin cards (cost=0 heroes) but keep playable hero cards (cost>0)
+        query = query.filter(~((Card.card_type == "HERO") & (Card.mana_cost == 0)))
     if format_filter == "standard":
         query = query.filter(Card.is_standard == True)
     if q:
@@ -256,7 +257,8 @@ def get_card_sets(db: Session = Depends(get_db), format_filter: str = ""):
     from sqlalchemy import func
     query = (
         db.query(Card.set_name, func.count())
-        .filter(Card.collectible == True, Card.set_name.notin_(EXCLUDED_SETS), Card.card_type != "HERO")
+        .filter(Card.collectible == True, Card.set_name.notin_(EXCLUDED_SETS),
+                ~((Card.card_type == "HERO") & (Card.mana_cost == 0)))
     )
     if format_filter == "standard":
         query = query.filter(Card.is_standard == True)
