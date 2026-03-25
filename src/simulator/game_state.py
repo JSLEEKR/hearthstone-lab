@@ -31,6 +31,7 @@ class MinionState:
     frenzy_triggered: bool = False
     spellburst_active: bool = False
     titan_turns_remaining: int = 0
+    titan_abilities_used: list[bool] = field(default_factory=lambda: [False, False, False])
     mechanics: list[str] = field(default_factory=list)
 
     def take_damage(self, amount: int) -> int:

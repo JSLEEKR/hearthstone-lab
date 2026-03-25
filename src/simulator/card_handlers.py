@@ -741,3 +741,245 @@ CARD_HANDLERS = {
     "VAC_945": _party_planner_vona,
     "EDR_489": _agamaggan,
 }
+
+
+# ---------------------------------------------------------------------------
+# TITAN HANDLERS
+# Each receives (engine, state, player, minion, ability_idx) where ability_idx is 0, 1, or 2.
+# ---------------------------------------------------------------------------
+
+def _titan_primus(engine, state, player, minion, idx):
+    """TTN_737 The Primus (DK): 0=Deal 5 dmg to minion, 1=Destroy a minion + summon 2/2 taunt, 2=Equip 3/3 lifesteal weapon"""
+    opp = _get_opponent(state, player)
+    if idx == 0:
+        if opp.board:
+            target = max(opp.board, key=lambda m: m.health)
+            target.take_damage(5)
+            target.frozen = True
+    elif idx == 1:
+        if opp.board:
+            target = max(opp.board, key=lambda m: m.health)
+            target.health = 0
+            _summon_token(player, "Undead", 2, 2, taunt=True)
+    elif idx == 2:
+        from src.simulator.game_state import WeaponState
+        player.hero.weapon = WeaponState("primus_staff", "Staff of the Primus", 3, 3)
+
+
+def _titan_argus(engine, state, player, minion, idx):
+    """TTN_862 Argus (DH): 0=Reduce random hand card cost by 3, 1=Gain 5 armor, 2=Deal 3 to all enemy minions"""
+    opp = _get_opponent(state, player)
+    if idx == 0:
+        if player.hand:
+            card_id = random.choice(player.hand)
+            cd = engine.card_db.get(card_id, {})
+            if cd:
+                cd["mana_cost"] = max(0, cd.get("mana_cost", 0) - 3)
+    elif idx == 1:
+        player.hero.armor += 5
+    elif idx == 2:
+        for m in list(opp.board):
+            m.take_damage(3)
+
+
+def _titan_eonar(engine, state, player, minion, idx):
+    """TTN_903 Eonar (Druid): 0=+2/+2 to other minions, 1=Restore 10 HP, 2=Summon two 5/5 taunts"""
+    if idx == 0:
+        for m in player.board:
+            if m is not minion:
+                m.attack += 2
+                m.health += 2
+                m.max_health += 2
+    elif idx == 1:
+        player.hero.health = min(player.hero.health + 10, player.hero.max_health)
+    elif idx == 2:
+        _summon_token(player, "Ancient", 5, 5, taunt=True)
+        _summon_token(player, "Ancient", 5, 5, taunt=True)
+
+
+def _titan_aggramar(engine, state, player, minion, idx):
+    """TTN_092 Aggramar (Hunter): 0=Deal armor damage to minion, 1=Give friendly +5/+5, 2=Gain 8 armor"""
+    opp = _get_opponent(state, player)
+    if idx == 0:
+        if opp.board:
+            target = max(opp.board, key=lambda m: m.health)
+            target.take_damage(player.hero.armor)
+    elif idx == 1:
+        if player.board:
+            target = max(player.board, key=lambda m: m.attack)
+            if target is not minion:
+                target.attack += 5
+                target.health += 5
+                target.max_health += 5
+    elif idx == 2:
+        player.hero.armor += 8
+
+
+def _titan_norgannon(engine, state, player, minion, idx):
+    """TTN_075 Norgannon (Mage): 0=Deal 4 randomly to enemies, 1=Add 2 free spells, 2=Copy opponent minion"""
+    opp = _get_opponent(state, player)
+    if idx == 0:
+        targets = list(opp.board) + [opp.hero]
+        for _ in range(4):
+            if targets:
+                random.choice(targets).take_damage(1)
+    elif idx == 1:
+        from src.simulator.game_state import HAND_LIMIT
+        for _ in range(2):
+            if len(player.hand) < HAND_LIMIT:
+                spells = [c for c in engine.card_db.values() if c.get("card_type") == "SPELL"
+                          and c.get("hero_class") in ("MAGE", "NEUTRAL")]
+                if spells:
+                    pick = random.choice(spells)
+                    cid = pick["card_id"]
+                    player.hand.append(cid)
+                    engine.card_db[cid] = dict(engine.card_db.get(cid, pick))
+                    engine.card_db[cid]["mana_cost"] = 0
+    elif idx == 2:
+        from src.simulator.game_state import HAND_LIMIT
+        if opp.board and len(player.hand) < HAND_LIMIT:
+            pick = random.choice(opp.board)
+            player.hand.append(pick.card_id)
+
+
+def _titan_yogg(engine, state, player, minion, idx):
+    """YOG_516 Yogg-Saron (Neutral): 0=Steal minion with <=5 atk, 1=Fill board with random minions, 2=Deal 4 to all minions"""
+    opp = _get_opponent(state, player)
+    from src.simulator.game_state import BOARD_LIMIT
+    if idx == 0:
+        targets = [m for m in opp.board if m.attack <= 5]
+        if targets and len(player.board) < BOARD_LIMIT:
+            stolen = random.choice(targets)
+            opp.board.remove(stolen)
+            player.board.append(stolen)
+    elif idx == 1:
+        while len(player.board) < BOARD_LIMIT:
+            pick = _random_minion_from_db(engine)
+            if pick:
+                _summon_token(player, pick.get("name", "Minion"), pick.get("attack", 1), pick.get("health", 1))
+            else:
+                break
+    elif idx == 2:
+        all_minions = list(player.board) + list(opp.board)
+        for m in all_minions:
+            if m is not minion:
+                m.take_damage(4)
+
+
+def _titan_amitus(engine, state, player, minion, idx):
+    """TTN_858 Amitus (Paladin): 0=Deal 4 to minion, 1=Summon 2x 2/2 divine shield, 2=Give others divine shield"""
+    opp = _get_opponent(state, player)
+    if idx == 0:
+        if opp.board:
+            max(opp.board, key=lambda m: m.health).take_damage(4)
+    elif idx == 1:
+        _summon_token(player, "Recruit", 2, 2, divine_shield=True)
+        _summon_token(player, "Recruit", 2, 2, divine_shield=True)
+    elif idx == 2:
+        for m in player.board:
+            if m is not minion:
+                m.divine_shield = True
+
+
+def _titan_amanthul(engine, state, player, minion, idx):
+    """TTN_429 Aman'Thul (Priest): 0=Remove enemy minion, 1=Discover from deck (draw 1), 2=Shuffle enemy minion into your deck"""
+    opp = _get_opponent(state, player)
+    if idx == 0:
+        if opp.board:
+            target = max(opp.board, key=lambda m: m.attack + m.health)
+            opp.board.remove(target)
+    elif idx == 1:
+        player.draw_card()
+    elif idx == 2:
+        if opp.board:
+            target = random.choice(opp.board)
+            opp.board.remove(target)
+            player.deck.append(target.card_id)
+
+
+def _titan_v07tron(engine, state, player, minion, idx):
+    """TTN_721 V-07-TR-0N (Rogue): 0=Deal 2 repeating, 1=Give +2 atk + windfury, 2=Gain +2/+2 + stealth"""
+    opp = _get_opponent(state, player)
+    if idx == 0:
+        for m in list(opp.board):
+            m.take_damage(2)
+            if m.is_dead:
+                continue
+            else:
+                break
+    elif idx == 1:
+        targets = [m for m in player.board if m is not minion]
+        if targets:
+            t = max(targets, key=lambda m: m.attack)
+            t.attack += 2
+            t.windfury = True
+    elif idx == 2:
+        minion.attack += 2
+        minion.health += 2
+        minion.max_health += 2
+        minion.stealth = True
+
+
+def _titan_golganneth(engine, state, player, minion, idx):
+    """TTN_800 Golganneth (Shaman): 0=Give minions +2 atk, 1=Deal 6 + freeze random enemy, 2=Summon 2x 3/3 rush elementals"""
+    opp = _get_opponent(state, player)
+    if idx == 0:
+        for m in player.board:
+            if m is not minion:
+                m.attack += 2
+    elif idx == 1:
+        if opp.board:
+            t = random.choice(opp.board)
+            t.take_damage(6)
+            t.frozen = True
+    elif idx == 2:
+        _summon_token(player, "Elemental", 3, 3, rush=True)
+        _summon_token(player, "Elemental", 3, 3, rush=True)
+
+
+def _titan_sargeras(engine, state, player, minion, idx):
+    """TTN_960 Sargeras (Warlock): 0=Draw 2, 1=Deal 3 to random enemy, 2=Destroy 3 random enemy minions"""
+    opp = _get_opponent(state, player)
+    if idx == 0:
+        _draw_cards(player, 2)
+    elif idx == 1:
+        targets = list(opp.board) + [opp.hero]
+        if targets:
+            random.choice(targets).take_damage(3)
+    elif idx == 2:
+        for _ in range(3):
+            if opp.board:
+                target = random.choice(opp.board)
+                target.health = 0
+
+
+def _titan_khazgoroth(engine, state, player, minion, idx):
+    """TTN_415 Khaz'goroth (Warrior): 0=Give +3/+3, 1=Equip 5/2 weapon, 2=Summon 4/6 taunt"""
+    if idx == 0:
+        targets = [m for m in player.board if m is not minion]
+        if targets:
+            t = max(targets, key=lambda m: m.attack)
+            t.attack += 3
+            t.health += 3
+            t.max_health += 3
+    elif idx == 1:
+        from src.simulator.game_state import WeaponState
+        player.hero.weapon = WeaponState("khaz_weapon", "Khaz'goroth's Hammer", 5, 2)
+    elif idx == 2:
+        _summon_token(player, "Stone Idol", 4, 6, taunt=True)
+
+
+TITAN_HANDLERS = {
+    "TTN_737": _titan_primus,
+    "TTN_862": _titan_argus,
+    "TTN_903": _titan_eonar,
+    "TTN_092": _titan_aggramar,
+    "TTN_075": _titan_norgannon,
+    "YOG_516": _titan_yogg,
+    "TTN_858": _titan_amitus,
+    "TTN_429": _titan_amanthul,
+    "TTN_721": _titan_v07tron,
+    "TTN_800": _titan_golganneth,
+    "TTN_960": _titan_sargeras,
+    "TTN_415": _titan_khazgoroth,
+}

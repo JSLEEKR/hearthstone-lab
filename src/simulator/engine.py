@@ -113,13 +113,23 @@ class GameEngine:
         player = state.current_player
         opponent = state.opponent
 
-        # TITAN: decrement turns and give ability (+2/+2 each turn)
-        for m in player.board:
+        # TITAN: use one ability per turn
+        from src.simulator.card_handlers import TITAN_HANDLERS
+        for m in list(player.board):
             if m.titan_turns_remaining > 0:
                 m.titan_turns_remaining -= 1
-                m.attack += 2
-                m.health += 2
-                m.max_health += 2
+                titan_fn = TITAN_HANDLERS.get(m.card_id)
+                if titan_fn:
+                    for i, used in enumerate(m.titan_abilities_used):
+                        if not used:
+                            m.titan_abilities_used[i] = True
+                            titan_fn(self, state, player, m, i)
+                            break
+                else:
+                    # Fallback for unknown titans: +2/+2
+                    m.attack += 2
+                    m.health += 2
+                    m.max_health += 2
 
         for m in list(player.board):
             if m.is_dead:
