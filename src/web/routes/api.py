@@ -447,7 +447,9 @@ def run_simulation(
     deck_b_list, card_db_b = get_deck_data(deck_b_id)
     combined_card_db = {**card_db_a, **card_db_b}
 
-    for i in range(min(num_matches, 100)):
+    actual_matches = min(num_matches, 100)
+    match_logs = []
+    for i in range(actual_matches):
         result = run_match(
             deck_a=list(deck_a_list), deck_b=list(deck_b_list),
             hero_a=deck_a.hero_class, hero_b=deck_b.hero_class,
@@ -460,11 +462,74 @@ def run_simulation(
         else:
             results["draws"] += 1
 
-    actual_matches = min(num_matches, 100)
+        # Include logs for first 3 matches only to avoid huge responses
+        if i < 3:
+            match_logs.append({
+                "game_num": i + 1,
+                "winner": result.winner,
+                "turns": result.turns,
+                "p1_hero": result.p1_hero,
+                "p2_hero": result.p2_hero,
+                "log": result.log,
+            })
+
     results["deck_a_winrate"] = round(results["deck_a_wins"] / actual_matches * 100, 1) if actual_matches > 0 else 0
     results["deck_b_winrate"] = round(results["deck_b_wins"] / actual_matches * 100, 1) if actual_matches > 0 else 0
+    results["match_logs"] = match_logs
     results["success"] = True
     return results
+
+
+@router.post("/simulation/run-single")
+def run_single_match(
+    deck_a_id: int, deck_b_id: int,
+    db: Session = Depends(get_db),
+):
+    """Run exactly 1 match and return full event log."""
+    deck_a = db.query(Deck).filter_by(id=deck_a_id).first()
+    deck_b = db.query(Deck).filter_by(id=deck_b_id).first()
+    if not deck_a or not deck_b:
+        return {"success": False, "error": "Deck not found"}
+
+    from src.db.tables import DeckCard, Card
+    from src.simulator.match import run_match
+
+    def get_deck_data(deck_id):
+        rows = (
+            db.query(DeckCard, Card)
+            .join(Card, DeckCard.card_id == Card.id)
+            .filter(DeckCard.deck_id == deck_id).all()
+        )
+        card_db = {}
+        deck_list = []
+        for dc, card in rows:
+            card_db[card.card_id] = {
+                "card_id": card.card_id, "card_type": card.card_type,
+                "mana_cost": card.mana_cost, "attack": card.attack or 0,
+                "health": card.health or 0, "mechanics": card.mechanics or [],
+                "name": card.name,
+            }
+            for _ in range(dc.count):
+                deck_list.append(card.card_id)
+        return deck_list, card_db
+
+    deck_a_list, card_db_a = get_deck_data(deck_a_id)
+    deck_b_list, card_db_b = get_deck_data(deck_b_id)
+    combined_card_db = {**card_db_a, **card_db_b}
+
+    result = run_match(
+        deck_a=list(deck_a_list), deck_b=list(deck_b_list),
+        hero_a=deck_a.hero_class, hero_b=deck_b.hero_class,
+        card_db=combined_card_db, max_turns=45,
+    )
+    return {
+        "success": True,
+        "winner": result.winner,
+        "turns": result.turns,
+        "p1_hero": result.p1_hero,
+        "p2_hero": result.p2_hero,
+        "log": result.log,
+    }
 
 
 @router.post("/tournament/run")

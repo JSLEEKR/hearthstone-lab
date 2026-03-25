@@ -41,20 +41,143 @@
             <span>Deck B: <strong x-text="result?.deck_b_wins + ' {{ t['sim.wins'] }}'"></strong> (<span x-text="result?.deck_b_winrate + '%'"></span>)</span>
         </div>
     </div>
+
+    <!-- Match Log Viewer -->
+    <div x-show="matchLogs.length > 0" style="margin-top:1.5rem;">
+        <h3 style="margin-bottom:0.5rem;">Game Logs</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.75rem;">
+            Showing logs for first <span x-text="matchLogs.length"></span> game(s)
+        </p>
+
+        <template x-for="(match, mIdx) in matchLogs" :key="mIdx">
+            <div class="game-log-section" style="margin-bottom:0.75rem;">
+                <button class="game-log-header" @click="match._open = !match._open"
+                        style="width:100%;text-align:left;padding:0.6rem 1rem;background:var(--bg-secondary, #1a1a2e);border:1px solid var(--border, #333);border-radius:6px;color:var(--text, #eee);cursor:pointer;font-weight:bold;display:flex;justify-content:space-between;align-items:center;">
+                    <span>
+                        Game <span x-text="match.game_num"></span>:
+                        <span x-text="match.winner === 'A' ? 'P1 (' + match.p1_hero + ') wins' : match.winner === 'B' ? 'P2 (' + match.p2_hero + ') wins' : 'Draw'"></span>
+                        (<span x-text="match.turns"></span> turns)
+                    </span>
+                    <span x-text="match._open ? '&#9650;' : '&#9660;'" style="font-size:0.75rem;"></span>
+                </button>
+
+                <div x-show="match._open" x-transition
+                     style="border:1px solid var(--border, #333);border-top:none;border-radius:0 0 6px 6px;padding:0.75rem;background:var(--bg-secondary, #1a1a2e);max-height:500px;overflow-y:auto;">
+
+                    <template x-for="(turnGroup, tIdx) in groupByTurn(match.log)" :key="tIdx">
+                        <div style="margin-bottom:0.5rem;">
+                            <div style="font-weight:bold;color:var(--gold, #f0c040);font-size:0.85rem;margin-bottom:0.25rem;border-bottom:1px solid var(--border, #333);padding-bottom:0.2rem;">
+                                <span x-text="turnGroup.label"></span>
+                            </div>
+                            <template x-for="(evt, eIdx) in turnGroup.events" :key="eIdx">
+                                <div class="log-event" :style="'padding:0.15rem 0.5rem;font-size:0.8rem;color:' + eventColor(evt.type)">
+                                    <span x-text="formatEvent(evt)"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+    </div>
 </div>
 
 <script>
 function simRunner() {
     return {
         deckAId: '', deckBId: '', numMatches: '10', running: false, result: null,
+        matchLogs: [],
         async runSim() {
             if (!this.deckAId || !this.deckBId) { alert('{{ t["sim.select_both"] }}'); return; }
             this.running = true;
             this.result = null;
+            this.matchLogs = [];
             try {
                 let res = await fetch(`/api/simulation/run?deck_a_id=${this.deckAId}&deck_b_id=${this.deckBId}&num_matches=${this.numMatches}`, {method:'POST'});
-                this.result = await res.json();
+                let data = await res.json();
+                this.result = data;
+                if (data.match_logs) {
+                    this.matchLogs = data.match_logs.map(m => ({...m, _open: false}));
+                }
             } finally { this.running = false; }
+        },
+
+        groupByTurn(log) {
+            if (!log) return [];
+            const groups = [];
+            let current = null;
+            for (const evt of log) {
+                const turn = evt.turn;
+                if (!current || current.turn !== turn) {
+                    const playerLabel = evt.player >= 0 ? `P${evt.player + 1}` : '';
+                    const manaInfo = evt.type === 'TURN_START' ? ` - ${evt.mana} mana` : '';
+                    let label;
+                    if (turn === 0) {
+                        label = 'Setup';
+                    } else {
+                        label = `Turn ${turn}` + (playerLabel ? ` (${playerLabel}${manaInfo})` : '');
+                    }
+                    current = {turn, label, events: []};
+                    groups.push(current);
+                }
+                current.events.push(evt);
+            }
+            return groups;
+        },
+
+        eventColor(type) {
+            const colors = {
+                'PLAY_MINION': '#f0c040',
+                'PLAY_SPELL': '#f0c040',
+                'PLAY_WEAPON': '#f0c040',
+                'ATTACK': '#e04040',
+                'DRAW': '#4090e0',
+                'FATIGUE': '#4090e0',
+                'MINION_DEATH': '#888',
+                'GAME_OVER': '#ff8000',
+                'HERO_POWER': '#a070d0',
+                'TRADE': '#50b050',
+                'FORGE': '#50b050',
+            };
+            return colors[type] || '#ccc';
+        },
+
+        formatEvent(evt) {
+            const p = evt.player >= 0 ? `[P${evt.player + 1}] ` : '';
+            switch (evt.type) {
+                case 'GAME_START':
+                    return `Game Start: ${evt.hero_a} vs ${evt.hero_b}`;
+                case 'MULLIGAN':
+                    return `${p}Mulligan: kept ${evt.kept}, returned ${evt.returned}`;
+                case 'TURN_START':
+                    return `${p}Turn starts (${evt.mana} mana, ${evt.hand_size} cards)`;
+                case 'DRAW':
+                    return `${p}Drew: ${evt.name || evt.source}`;
+                case 'FATIGUE':
+                    return `${p}Fatigue: ${evt.damage} damage`;
+                case 'PLAY_MINION':
+                    return `${p}Played minion: ${evt.name} (${evt.cost} mana, ${evt.attack}/${evt.health})`;
+                case 'PLAY_SPELL':
+                    return `${p}Cast spell: ${evt.name} (${evt.cost} mana)`;
+                case 'PLAY_WEAPON':
+                    return `${p}Equipped weapon: ${evt.name} (${evt.cost} mana)`;
+                case 'ATTACK':
+                    const atkName = evt.attacker_name || evt.source;
+                    const tgtName = evt.target === 'enemy_hero' ? 'enemy hero' : (evt.target_name || evt.target);
+                    return `${p}${atkName} attacks ${tgtName} for ${evt.damage}`;
+                case 'HERO_POWER':
+                    return `${p}Used Hero Power (${evt.source})`;
+                case 'TRADE':
+                    return `${p}Traded: ${evt.name}`;
+                case 'FORGE':
+                    return `${p}Forged: ${evt.name}`;
+                case 'TURN_END':
+                    return `${p}Turn ends - Board: ${evt.board_size} minion(s), HP: ${evt.hero_hp} | Opp board: ${evt.opp_board_size}, HP: ${evt.opp_hero_hp}`;
+                case 'GAME_OVER':
+                    return `Game Over: ${evt.winner === 'draw' ? 'Draw' : evt.winner + ' wins'} (turn ${evt.final_turn}) - P1 HP: ${evt.p1_hp}, P2 HP: ${evt.p2_hp}`;
+                default:
+                    return `${p}${evt.type}: ${evt.source}`;
+            }
         }
     }
 }
