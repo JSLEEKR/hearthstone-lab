@@ -148,6 +148,7 @@ class PlayerState:
     cards_played_this_turn: int = 0
     friendly_deaths_this_game: int = 0
     echo_cards: list[str] = field(default_factory=list)
+    corrupted_cards: dict[str, bool] = field(default_factory=dict)
 
     def draw_card(self) -> str | None:
         if not self.deck:

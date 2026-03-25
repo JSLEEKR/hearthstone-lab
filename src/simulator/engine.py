@@ -215,6 +215,28 @@ class GameEngine:
         if state is not None:
             self.apply_enrage(state)
 
+        # HONORABLE_KILL: if attacker killed defender exactly (defender died, attacker alive)
+        if state is not None and defender.is_dead and not attacker.is_dead:
+            if "HONORABLE_KILL" in attacker.mechanics:
+                from src.simulator.spell_parser import parse_honorable_kill_effects
+                hk_effects = parse_honorable_kill_effects(
+                    self.card_db.get(attacker.card_id, {}).get("text", ""))
+                for player in [state.player1, state.player2]:
+                    if attacker in player.board:
+                        self._apply_battlecry_effects(state, player, attacker, hk_effects)
+                        break
+
+        # OVERKILL: if defender died with excess damage (health < 0)
+        if state is not None and defender.is_dead and defender.health < 0:
+            if "OVERKILL" in attacker.mechanics:
+                from src.simulator.spell_parser import parse_overkill_effects
+                ok_effects = parse_overkill_effects(
+                    self.card_db.get(attacker.card_id, {}).get("text", ""))
+                for player in [state.player1, state.player2]:
+                    if attacker in player.board:
+                        self._apply_battlecry_effects(state, player, attacker, ok_effects)
+                        break
+
     def attack_hero(self, attacker: MinionState, hero: HeroState,
                     state: GameState | None = None):
         # Check secrets before attack resolves
@@ -326,6 +348,14 @@ class GameEngine:
         if overload:
             player.overload += overload
 
+        # CORRUPT: if this card was corrupted, apply +2/+2 bonus as generic upgrade
+        card_id = card_data.get("card_id", "")
+        if card_id in player.corrupted_cards:
+            minion.attack += 2
+            minion.health += 2
+            minion.max_health += 2
+            del player.corrupted_cards[card_id]
+
         # Apply battlecry
         if "BATTLECRY" in mechanics:
             from src.simulator.spell_parser import parse_battlecry_effects
@@ -374,6 +404,31 @@ class GameEngine:
         if "SPELLBURST" in mechanics:
             minion.spellburst_active = True
 
+        # DREDGE: look at bottom 3 cards of deck, put best on top
+        if "DREDGE" in mechanics:
+            self._do_dredge(player)
+
+        # DISCOVER: pick from 3 random cards, add best to hand
+        if "DISCOVER" in mechanics:
+            self._discover(state, player)
+
+        # MANATHIRST: bonus if max_mana >= threshold
+        from src.simulator.spell_parser import parse_manathirst_effects
+        threshold, mana_effects = parse_manathirst_effects(card_data.get("text", ""))
+        if threshold > 0 and player.max_mana >= threshold:
+            self._apply_battlecry_effects(state, player, minion, mana_effects)
+
+        # INFUSE: check if friendly deaths meet threshold for bonus
+        from src.simulator.spell_parser import parse_infuse_threshold, parse_infuse_effects
+        infuse_threshold = parse_infuse_threshold(card_data.get("text", ""))
+        if infuse_threshold > 0 and player.friendly_deaths_this_game >= infuse_threshold:
+            infuse_effects = parse_infuse_effects(card_data.get("text", ""))
+            self._apply_battlecry_effects(state, player, minion, infuse_effects)
+
+        # CORRUPT: mark hand cards with lower cost as corrupted
+        card_cost = card_data.get("mana_cost", 0)
+        self._check_corrupt_hand(player, card_cost)
+
         # Check opponent secrets on minion play
         self.check_secrets(state, "play_minion", minion=minion)
 
@@ -406,6 +461,23 @@ class GameEngine:
                 minion.health += eff.value2
                 minion.max_health += eff.value2
             elif eff.effect_type == "heal":
+                # OVERHEAL: if already at max health, trigger overheal bonus
+                if player.hero.health >= player.hero.max_health:
+                    if "OVERHEAL" in (minion.mechanics if minion else []):
+                        from src.simulator.spell_parser import parse_overheal_effects
+                        oh_effects = parse_overheal_effects(
+                            self.card_db.get(minion.card_id, {}).get("text", ""))
+                        # Apply overheal effects (avoid infinite recursion by not re-checking overheal)
+                        for oh_eff in oh_effects:
+                            if oh_eff.effect_type == "armor":
+                                player.hero.armor += oh_eff.value
+                            elif oh_eff.effect_type == "draw":
+                                for _ in range(oh_eff.value):
+                                    player.draw_card()
+                            elif oh_eff.effect_type == "buff":
+                                minion.attack += oh_eff.value
+                                minion.health += oh_eff.value2
+                                minion.max_health += oh_eff.value2
                 player.hero.health = min(player.hero.health + eff.value, player.hero.max_health)
             elif eff.effect_type == "armor":
                 player.hero.armor += eff.value
@@ -506,7 +578,48 @@ class GameEngine:
                     mana_cost=0,
                 ))
 
+        # MANATHIRST: bonus if max_mana >= threshold
+        from src.simulator.spell_parser import parse_manathirst_effects
+        threshold, mana_effects = parse_manathirst_effects(card_data.get("text", ""))
+        if threshold > 0 and player.max_mana >= threshold:
+            # Apply manathirst effects like normal spell effects
+            for eff in mana_effects:
+                if eff.effect_type == "damage":
+                    damage = eff.value + self._get_spell_power(state)
+                    opponent.hero.take_damage(damage)
+                elif eff.effect_type == "draw":
+                    for _ in range(eff.value):
+                        player.draw_card()
+
         player.cards_played_this_turn += 1
+
+        # TWINSPELL: add a copy without TWINSPELL to hand
+        if "TWINSPELL" in mechanics:
+            card_id = card_data.get("card_id", "")
+            if card_id and len(player.hand) < 10:
+                # Add the card back to hand; the copy conceptually lacks TWINSPELL
+                # but since we key off card_db, we mark it by adding a suffix
+                twin_id = card_id + "_twin"
+                # Register twin copy in card_db without TWINSPELL
+                twin_data = dict(card_data)
+                twin_mechanics = [m for m in mechanics if m != "TWINSPELL"]
+                twin_data["mechanics"] = twin_mechanics
+                twin_data["card_id"] = twin_id
+                self.card_db[twin_id] = twin_data
+                player.hand.append(twin_id)
+
+        # DREDGE: look at bottom 3 cards of deck, put best on top
+        if "DREDGE" in mechanics:
+            self._do_dredge(player)
+
+        # DISCOVER: pick from 3 random cards, add best to hand
+        if "DISCOVER" in mechanics:
+            self._discover(state, player)
+
+        # CORRUPT: mark hand cards with lower cost as corrupted
+        card_cost = card_data.get("mana_cost", 0)
+        self._check_corrupt_hand(player, card_cost)
+
         # Trigger spellburst on friendly minions
         self._check_spellburst(state)
         self.remove_dead_minions(state)
@@ -653,6 +766,55 @@ class GameEngine:
             if not player.board_full:
                 player.board.append(MinionState(card_id="dk_ghoul", name="Ghoul",
                     attack=1, health=1, max_health=1, mana_cost=0))
+
+        # INSPIRE: trigger on friendly minions after hero power use
+        from src.simulator.spell_parser import parse_inspire_effects
+        for m in list(player.board):
+            if m.is_dead:
+                continue
+            if "INSPIRE" in m.mechanics:
+                insp_effects = parse_inspire_effects(
+                    self.card_db.get(m.card_id, {}).get("text", ""))
+                self._apply_battlecry_effects(state, player, m, insp_effects)
+
+    def _do_dredge(self, player: PlayerState):
+        """DREDGE: look at bottom 3 cards of deck, put the best (highest mana cost) on top."""
+        if not player.deck:
+            return
+        bottom_count = min(3, len(player.deck))
+        # Bottom cards are at end of deck list (deck[0] is top)
+        bottom_cards = player.deck[-bottom_count:]
+        # Pick the one with highest mana cost
+        best = max(bottom_cards, key=lambda cid: self.card_db.get(cid, {}).get("mana_cost", 0))
+        player.deck.remove(best)
+        player.deck.insert(0, best)
+
+    def _discover(self, state: GameState, player: PlayerState, filter_fn=None):
+        """DISCOVER: present 3 random cards from card_db, AI picks lowest cost one, add to hand."""
+        candidates = list(self.card_db.values())
+        if filter_fn:
+            candidates = [c for c in candidates if filter_fn(c)]
+        # Filter out tokens and coins
+        candidates = [c for c in candidates if c.get("card_type") in ("MINION", "SPELL", "WEAPON")
+                       and c.get("card_id", "").upper() != "GAME_005"
+                       and not c.get("card_id", "").endswith("_mini")
+                       and not c.get("card_id", "").endswith("_twin")]
+        if not candidates:
+            return
+        choices = random.sample(candidates, min(3, len(candidates)))
+        # AI picks the lowest cost one (simple heuristic)
+        pick = min(choices, key=lambda c: c.get("mana_cost", 99))
+        card_id = pick.get("card_id", "")
+        if card_id and len(player.hand) < 10:
+            player.hand.append(card_id)
+
+    def _check_corrupt_hand(self, player: PlayerState, played_cost: int):
+        """CORRUPT: mark hand cards with CORRUPT mechanic and cost < played_cost as corrupted."""
+        for card_id in player.hand:
+            card_data = self.card_db.get(card_id, {})
+            if "CORRUPT" in card_data.get("mechanics", []):
+                if card_data.get("mana_cost", 0) < played_cost:
+                    player.corrupted_cards[card_id] = True
 
     def get_legal_actions(self, state: GameState) -> list:
         from src.simulator.actions import PlayCard, Attack, HeroPower, EndTurn, TradeCard

@@ -170,3 +170,84 @@ def parse_outcast_effects(text: str) -> list[SpellEffect]:
     if m:
         return parse_spell_effects(m.group(1))
     return []
+
+
+def parse_honorable_kill_effects(text: str) -> list[SpellEffect]:
+    """Parse honorable kill portion of text (명예로운 처치:)."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'명예로운 처치[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1))
+    return []
+
+
+def parse_inspire_effects(text: str) -> list[SpellEffect]:
+    """Parse inspire portion of text (감화:)."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'감화[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1))
+    return []
+
+
+def parse_manathirst_effects(text: str) -> tuple[int, list[SpellEffect]]:
+    """Parse manathirst portion of text (마나 갈증 (N):). Returns (threshold, effects)."""
+    if not text:
+        return (0, [])
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'마나 갈증\s*\((\d+)\)[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        threshold = int(m.group(1))
+        return (threshold, parse_spell_effects(m.group(2)))
+    return (0, [])
+
+
+def parse_overkill_effects(text: str) -> list[SpellEffect]:
+    """Parse overkill portion of text (과잉살상:)."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'과잉살상[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1))
+    return []
+
+
+def parse_overheal_effects(text: str) -> list[SpellEffect]:
+    """Parse overheal portion of text (과치유:)."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'과치유[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1))
+    return []
+
+
+def parse_infuse_threshold(text: str) -> int:
+    """Parse infuse threshold from text (주입 (N) or just 주입:). Returns N or 1 as default."""
+    if not text:
+        return 0
+    clean = re.sub(r'<[^>]+>', '', text)
+    m = re.search(r'주입\s*\((\d+)\)', clean)
+    if m:
+        return int(m.group(1))
+    if '주입' in clean:
+        return 1
+    return 0
+
+
+def parse_infuse_effects(text: str) -> list[SpellEffect]:
+    """Parse infuse bonus effects from text (주입:)."""
+    if not text:
+        return []
+    clean = re.sub(r'<[^>]+>', '', text)
+    # Try "주입 (N):" pattern first
+    m = re.search(r'주입\s*(?:\(\d+\))?[:\s]+(.*?)(?:\.|$)', clean, re.DOTALL)
+    if m:
+        return parse_spell_effects(m.group(1))
+    return []
