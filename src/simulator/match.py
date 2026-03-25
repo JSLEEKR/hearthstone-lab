@@ -161,8 +161,41 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
                 overload = card_data.get("overload", 0)
                 if overload:
                     player.overload += overload
+                # Weapon battlecry effects
+                text = card_data.get("text", "")
+                if text and "전투의 함성" in text:
+                    from src.simulator.spell_parser import parse_battlecry_effects
+                    bc_effects = parse_battlecry_effects(text)
+                    if bc_effects:
+                        engine._apply_battlecry_effects(state, player, None, bc_effects)
                 player.cards_played_this_turn += 1
                 log and log.append(turn_count, state.current_player_idx, "PLAY_WEAPON", card_id,
+                           name=card_name, cost=cost)
+            elif card_type == "HERO":
+                # Hero card: replace hero power, gain armor, apply battlecry
+                player.hero.armor += 5  # Most hero cards grant 5 armor
+                player.mana -= card_data.get("mana_cost", 0)
+                text = card_data.get("text", "")
+                if text and "전투의 함성" in text:
+                    from src.simulator.spell_parser import parse_battlecry_effects
+                    bc_effects = parse_battlecry_effects(text)
+                    if bc_effects:
+                        engine._apply_battlecry_effects(state, player, None, bc_effects)
+                player.cards_played_this_turn += 1
+                log and log.append(turn_count, state.current_player_idx, "PLAY_HERO", card_id,
+                           name=card_name, cost=cost)
+            elif card_type == "LOCATION":
+                # Location: summon as a 0/health token with durability-like behavior
+                health = card_data.get("health", 3) or 3
+                from src.simulator.game_state import MinionState as _MS
+                if not player.board_full:
+                    loc = _MS(card_id=card_data.get("card_id", ""), name=card_data.get("name", ""),
+                              attack=0, health=health, max_health=health, mana_cost=card_data.get("mana_cost", 0),
+                              dormant=True)
+                    player.board.append(loc)
+                player.mana -= card_data.get("mana_cost", 0)
+                player.cards_played_this_turn += 1
+                log and log.append(turn_count, state.current_player_idx, "PLAY_LOCATION", card_id,
                            name=card_name, cost=cost)
 
     elif isinstance(action, Attack):

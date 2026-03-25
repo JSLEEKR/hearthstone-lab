@@ -102,8 +102,9 @@ class ScoreBasedAI(BaseAI):
                 continue
             try:
                 sim_state = copy.deepcopy(state)
-                sim_engine = _GameEngine(card_db=engine.card_db)
-                _execute_action(sim_engine, sim_state, action, engine.card_db)
+                sim_card_db = copy.deepcopy(engine.card_db)
+                sim_engine = _GameEngine(card_db=sim_card_db)
+                _execute_action(sim_engine, sim_state, action, sim_card_db)
                 sim_engine.remove_dead_minions(sim_state)
                 score = evaluate_state(sim_state, player_idx)
                 if score > best_score:
@@ -141,8 +142,9 @@ class MCTSAI(BaseAI):
             action = non_end[action_idx]
             try:
                 sim_state = copy.deepcopy(state)
-                sim_engine = _GameEngine(card_db=engine.card_db)
-                _execute_action(sim_engine, sim_state, action, engine.card_db)
+                sim_card_db = copy.deepcopy(engine.card_db)
+                sim_engine = _GameEngine(card_db=sim_card_db)
+                _execute_action(sim_engine, sim_state, action, sim_card_db)
                 sim_engine.remove_dead_minions(sim_state)
 
                 for _ in range(self.rollout_depth):
@@ -151,7 +153,7 @@ class MCTSAI(BaseAI):
                     rollout_action = self._rollout_ai.choose_action(sim_state, sim_engine)
                     if isinstance(rollout_action, EndTurn):
                         break
-                    _execute_action(sim_engine, sim_state, rollout_action, engine.card_db)
+                    _execute_action(sim_engine, sim_state, rollout_action, sim_card_db)
                     sim_engine.remove_dead_minions(sim_state)
 
                 score = evaluate_state(sim_state, player_idx)

@@ -105,7 +105,6 @@ class GameEngine:
         # Reset turn-based tracking
         player.spells_cast_last_turn = list(player.spells_cast_this_turn)
         player.spells_cast_this_turn.clear()
-        player.damage_taken_this_turn = 0
         player.hero_hp_at_turn_start = player.hero.health + player.hero.armor
 
         # Phase 2: Draw card
@@ -201,6 +200,9 @@ class GameEngine:
 
         for m in list(player.board):
             if m.is_dead:
+                continue
+            # Skip INSPIRE minions for on_hero_power — already handled by use_hero_power()
+            if trigger_type == "on_hero_power" and "INSPIRE" in m.mechanics:
                 continue
             text = self.card_db.get(m.card_id, {}).get("text", "") or ""
             clean = re.sub(r'<[^>]+>', '', text).replace('[x]', '').replace('\n', ' ')
@@ -996,6 +998,9 @@ class GameEngine:
 
         player.cards_played_this_turn += 1
 
+        # Check secrets triggered by spell cast
+        self.check_secrets(state, "play_spell")
+
         # QUEST progress: increment on every card played
         self._check_quest_progress(player)
 
@@ -1223,7 +1228,7 @@ class GameEngine:
         elif hero_class == "PALADIN":
             if not player.board_full:
                 player.board.append(MinionState(card_id="CS2_101t", name="Silver Hand Recruit",
-                    attack=1, health=1, max_health=1, mana_cost=0))
+                    attack=1, health=1, max_health=1, mana_cost=0, summoned_this_turn=True))
         elif hero_class == "WARLOCK":
             player.hero.take_damage(2)
             player.draw_card()
@@ -1237,7 +1242,9 @@ class GameEngine:
                     MinionState(card_id="t3", name="Stoneclaw Totem", attack=0, health=2, max_health=2, mana_cost=0, taunt=True),
                     MinionState(card_id="t4", name="Wrath of Air Totem", attack=0, health=2, max_health=2, mana_cost=0),
                 ]
-                player.board.append(random.choice(totems))
+                totem = random.choice(totems)
+                totem.summoned_this_turn = True
+                player.board.append(totem)
         elif hero_class == "DRUID":
             player.hero.armor += 1
             player.hero.attack += 1
@@ -1246,7 +1253,7 @@ class GameEngine:
         elif hero_class == "DEATH_KNIGHT":
             if not player.board_full:
                 player.board.append(MinionState(card_id="dk_ghoul", name="Ghoul",
-                    attack=1, health=1, max_health=1, mana_cost=0))
+                    attack=1, health=1, max_health=1, mana_cost=0, summoned_this_turn=True))
 
         # INSPIRE: trigger on friendly minions after hero power use
         from src.simulator.spell_parser import parse_inspire_effects
