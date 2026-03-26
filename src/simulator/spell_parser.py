@@ -283,6 +283,7 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
     m = re.search(r'모든\s*적에게\s*피해를\s*(\d+)', text)
     if m and '하수인' not in text:
         effects.append(SpellEffect("aoe_damage", int(m.group(1)), target="all_enemy_minions"))
+        effects.append(SpellEffect("damage", int(m.group(1)), target="enemy_hero"))
         return effects
 
     # AOE damage to ALL characters: "모든 캐릭터에게 피해를 N"

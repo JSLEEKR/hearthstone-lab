@@ -209,7 +209,7 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
                 player.hero.weapon = WeaponState(
                     card_id=card_data.get("card_id", ""), name=card_data.get("name", ""),
                     attack=card_data.get("attack", 0), durability=card_data.get("durability", 1))
-                player.mana -= card_data.get("mana_cost", 0)
+                player.mana = max(0, player.mana - card_data.get("mana_cost", 0))
                 overload = card_data.get("overload", 0)
                 if overload:
                     player.overload += overload
@@ -229,7 +229,7 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
             elif card_type == "HERO":
                 # Hero card: replace hero power, gain armor, apply battlecry
                 player.hero.armor += 5  # Most hero cards grant 5 armor
-                player.mana -= card_data.get("mana_cost", 0)
+                player.mana = max(0, player.mana - card_data.get("mana_cost", 0))
                 text = card_data.get("text", "")
                 if text and "전투의 함성" in text:
                     from src.simulator.spell_parser import parse_battlecry_effects
@@ -251,7 +251,7 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
                               attack=0, health=health, max_health=health, mana_cost=card_data.get("mana_cost", 0),
                               dormant=True)
                     player.board.append(loc)
-                player.mana -= card_data.get("mana_cost", 0)
+                player.mana = max(0, player.mana - card_data.get("mana_cost", 0))
                 player.cards_played_this_turn += 1
                 log and log.append(turn_count, state.current_player_idx, "PLAY_LOCATION", card_id,
                            name=card_name, cost=cost)
@@ -297,7 +297,7 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
             player.deck.append(card_id)
             random.shuffle(player.deck)
             player.draw_card()
-            player.mana -= 1
+            player.mana = max(0, player.mana - 1)
 
     elif isinstance(action, ForgeCard):
         player = state.current_player
@@ -321,7 +321,7 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
                 card_db[forged_id] = forged_data
                 engine.card_db[forged_id] = forged_data
             player.hand[action.hand_idx] = forged_id
-            player.mana -= 2
+            player.mana = max(0, player.mana - 2)
 
     elif isinstance(action, HeroPower):
         player = state.current_player

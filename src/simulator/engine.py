@@ -97,6 +97,7 @@ class GameEngine:
         player.mana = player.max_mana - player.overload
         player.overload = 0
         player.hero.hero_power_used = False
+        player.hero.frozen = False
         player.hero.attack = 0
         player.hero.attacks_this_turn = 0
         player.cards_played_this_turn = 0
@@ -225,6 +226,12 @@ class GameEngine:
         player = state.current_player
         for m in list(player.board):
             if m.is_dead:
+                continue
+            # Healing Totem: heal all friendly minions for 1
+            if m.card_id == "t1":
+                for ally in player.board:
+                    if ally is not m and not ally.is_dead and ally.health < ally.max_health:
+                        ally.health = min(ally.health + 1, ally.max_health)
                 continue
             text = self.card_db.get(m.card_id, {}).get("text", "") or ""
             # "At the end of your turn" patterns (Korean)
@@ -359,6 +366,9 @@ class GameEngine:
         self.check_secrets(state, "attack_hero")
         attack = player.hero.total_attack
         opponent.hero.take_damage(attack)
+        # Counter-damage: attacker takes damage from opponent's attack
+        if opponent.hero.total_attack > 0:
+            player.hero.take_damage(opponent.hero.total_attack)
         player.hero.attacks_this_turn += 1
         if player.hero.weapon and not player.hero.weapon.is_broken:
             player.hero.weapon.durability -= 1
@@ -421,6 +431,7 @@ class GameEngine:
             new_board: list[MinionState] = []
             for m in player.board:
                 if m.is_dead:
+                    player.graveyard.append(m.card_id)
                     # REBORN: respawn with 1 health at same position
                     if m.reborn and len(new_board) < BOARD_LIMIT:
                         reborn_copy = MinionState(
@@ -461,7 +472,7 @@ class GameEngine:
             charge="CHARGE" in mechanics, mechanics=mechanics,
         )
         player.board.append(minion)
-        player.mana -= card_data.get("mana_cost", 0)
+        player.mana = max(0, player.mana - card_data.get("mana_cost", 0))
         # OVERLOAD
         overload = card_data.get("overload", 0)
         if overload:
@@ -705,8 +716,16 @@ class GameEngine:
         """Apply a list of SpellEffect objects as battlecry/combo effects."""
         for eff in effects:
             if eff.effect_type == "damage":
-                if eff.target in ("enemy_hero", "auto"):
+                if eff.target == "enemy_hero":
                     state.opponent.hero.take_damage(eff.value)
+                elif eff.target == "auto":
+                    # Smart targeting: kill threats first, then go face
+                    killable = [m for m in state.opponent.board if m.health <= eff.value and m.attack >= 3]
+                    if killable:
+                        target_m = max(killable, key=lambda m: m.attack)
+                        target_m.take_damage(eff.value)
+                    else:
+                        state.opponent.hero.take_damage(eff.value)
                 elif state.opponent.board:
                     t = max(state.opponent.board, key=lambda m: m.health)
                     t.take_damage(eff.value)
@@ -838,14 +857,19 @@ class GameEngine:
             elif eff.effect_type == "resurrect":
                 for _ in range(eff.value):
                     if not player.board_full:
-                        candidates = [c for c in self.card_db.values()
-                                      if c.get("card_type") == "MINION"
-                                      and c.get("mana_cost", 99) <= 5
-                                      and not c.get("card_id", "").endswith("_mini")]
-                        if candidates:
-                            pick = random.choice(candidates)
+                        # Pull from graveyard if available, otherwise fall back to card_db
+                        if player.graveyard:
+                            pick_id = random.choice(player.graveyard)
+                            pick = self.card_db.get(pick_id, {})
+                        else:
+                            candidates = [c for c in self.card_db.values()
+                                          if c.get("card_type") == "MINION"
+                                          and c.get("mana_cost", 99) <= 5
+                                          and not c.get("card_id", "").endswith("_mini")]
+                            pick = random.choice(candidates) if candidates else {}
+                        if pick and pick.get("card_type", "MINION") == "MINION":
                             player.board.append(MinionState(
-                                card_id=pick["card_id"], name=pick.get("name", ""),
+                                card_id=pick.get("card_id", ""), name=pick.get("name", ""),
                                 attack=pick.get("attack", 1), health=pick.get("health", 1),
                                 max_health=pick.get("health", 1), mana_cost=pick.get("mana_cost", 0),
                                 summoned_this_turn=True,
@@ -877,16 +901,31 @@ class GameEngine:
                     if targetable:
                         max(targetable, key=lambda m: m.health).take_damage(damage)
             elif eff.target == "auto":
-                opponent.hero.take_damage(damage)
+                # Smart targeting: kill threats first, then go face
+                killable = [m for m in opponent.board if m.health <= damage and m.attack >= 3]
+                if killable:
+                    target_m = max(killable, key=lambda m: m.attack)
+                    target_m.take_damage(damage)
+                else:
+                    opponent.hero.take_damage(damage)
 
         elif eff.effect_type == "aoe_damage":
             damage = eff.value + spell_power
             if eff.target == "all_minions":
-                for m in player.board + opponent.board:
-                    m.take_damage(damage)
+                if eff.value >= 999:
+                    # Board clear "destroy all" — bypass divine shield
+                    for m in player.board + opponent.board:
+                        m.health = 0
+                else:
+                    for m in player.board + opponent.board:
+                        m.take_damage(damage)
             elif eff.target == "all_enemy_minions":
-                for m in opponent.board:
-                    m.take_damage(damage)
+                if eff.value >= 999:
+                    for m in opponent.board:
+                        m.health = 0
+                else:
+                    for m in opponent.board:
+                        m.take_damage(damage)
 
         elif eff.effect_type == "heal":
             if eff.target == "auto" or eff.target == "self_hero":
@@ -900,8 +939,10 @@ class GameEngine:
             player.hero.attack += eff.value
 
         elif eff.effect_type == "buff" and player.board:
-            t = player.board[-1] if player.board else None
-            if t:
+            # Prefer attackers with windfury, then highest attack
+            targets = [m for m in player.board if not m.is_dead]
+            if targets:
+                t = max(targets, key=lambda m: (m.windfury * 10, m.attack, m.can_attack))
                 t.attack += eff.value
                 t.health += eff.value2
                 t.max_health += eff.value2
@@ -937,7 +978,7 @@ class GameEngine:
     def play_spell(self, state: GameState, card_data: dict, target=None):
         player = state.current_player
         opponent = state.opponent
-        player.mana -= card_data.get("mana_cost", 0)
+        player.mana = max(0, player.mana - card_data.get("mana_cost", 0))
         # OVERLOAD
         overload = card_data.get("overload", 0)
         if overload:
@@ -1246,7 +1287,7 @@ class GameEngine:
         player = state.current_player
         if player.hero.hero_power_used or player.mana < player.hero.hero_power_cost:
             return
-        player.mana -= player.hero.hero_power_cost
+        player.mana = max(0, player.mana - player.hero.hero_power_cost)
         player.hero.hero_power_used = True
         hero_class = player.hero.hero_class
         opponent = state.opponent
@@ -1258,7 +1299,15 @@ class GameEngine:
                 else:
                     opponent.hero.take_damage(1)
             else:
-                opponent.hero.take_damage(1)
+                # Smart targeting: kill 1-health minions first
+                if opponent.board:
+                    one_hp = [m for m in opponent.board if m.health == 1]
+                    if one_hp:
+                        one_hp[0].take_damage(1)
+                    else:
+                        opponent.hero.take_damage(1)
+                else:
+                    opponent.hero.take_damage(1)
         elif hero_class == "WARRIOR":
             player.hero.armor += 2
         elif hero_class == "PRIEST":
@@ -1268,7 +1317,13 @@ class GameEngine:
                 else:
                     target.health = min(target.health + 2, target.max_health)
             else:
-                player.hero.health = min(player.hero.health + 2, player.hero.max_health)
+                # Smart targeting: heal damaged minions first
+                damaged = [m for m in player.board if m.health < m.max_health]
+                if damaged:
+                    heal_target = min(damaged, key=lambda m: m.health)
+                    heal_target.health = min(heal_target.health + 2, heal_target.max_health)
+                else:
+                    player.hero.health = min(player.hero.health + 2, player.hero.max_health)
         elif hero_class == "HUNTER":
             opponent.hero.take_damage(2)
         elif hero_class == "PALADIN":
@@ -1286,11 +1341,22 @@ class GameEngine:
                     MinionState(card_id="t1", name="Healing Totem", attack=0, health=2, max_health=2, mana_cost=0),
                     MinionState(card_id="t2", name="Searing Totem", attack=1, health=1, max_health=1, mana_cost=0),
                     MinionState(card_id="t3", name="Stoneclaw Totem", attack=0, health=2, max_health=2, mana_cost=0, taunt=True),
-                    MinionState(card_id="t4", name="Wrath of Air Totem", attack=0, health=2, max_health=2, mana_cost=0),
+                    MinionState(card_id="t4", name="Wrath of Air Totem", attack=0, health=2, max_health=2, mana_cost=0, mechanics=["SPELLPOWER"]),
                 ]
-                totem = random.choice(totems)
+                existing_ids = {m.card_id for m in player.board}
+                available = [t for t in totems if t.card_id not in existing_ids]
+                if not available:
+                    return  # All totems already on board
+                totem = random.choice(available)
                 totem.summoned_this_turn = True
                 player.board.append(totem)
+                # Register Healing Totem end-of-turn heal effect in card_db
+                if totem.card_id == "t1" and "t1" not in self.card_db:
+                    self.card_db["t1"] = {
+                        "card_id": "t1", "name": "Healing Totem",
+                        "text": "내 턴이 끝날 때, 아군 하수인의 체력을 1 회복합니다.",
+                        "mechanics": [],
+                    }
         elif hero_class == "DRUID":
             player.hero.armor += 1
             player.hero.attack += 1
@@ -1361,8 +1427,21 @@ class GameEngine:
                 break
         if not choices:
             return
-        # AI picks the lowest cost one (simple heuristic)
-        pick = min(choices, key=lambda c: c.get("mana_cost", 99))
+        # Smart discover picking based on game phase
+        turn = state.turn if state else 0
+        if turn >= 7:
+            # Late game: pick highest cost
+            pick = max(choices, key=lambda c: c.get("mana_cost", 0))
+        elif turn < 4:
+            # Early game: pick lowest cost
+            pick = min(choices, key=lambda c: c.get("mana_cost", 99))
+        else:
+            # Mid game: pick best stats/cost ratio
+            def _value(c):
+                cost = max(1, c.get("mana_cost", 1))
+                stats = c.get("attack", 0) + c.get("health", 0)
+                return stats / cost
+            pick = max(choices, key=_value)
         card_id = pick.get("card_id", "")
         if card_id and len(player.hand) < 10:
             player.hand.append(card_id)
@@ -1422,7 +1501,7 @@ class GameEngine:
                 actions.append(Attack(attacker_idx=i, target_idx=-1, target_is_hero=True))
 
         # Hero attack with weapon/attack
-        if player.hero.total_attack > 0 and player.hero.attacks_this_turn == 0:
+        if player.hero.total_attack > 0 and player.hero.attacks_this_turn == 0 and not player.hero.frozen:
             for j, target in enumerate(opponent.board):
                 if has_taunt and not target.taunt:
                     continue

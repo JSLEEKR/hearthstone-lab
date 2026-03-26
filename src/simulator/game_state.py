@@ -107,6 +107,7 @@ class HeroState:
     attack: int = 0
     hero_power_cost: int = 2
     hero_power_used: bool = False
+    frozen: bool = False
     attacks_this_turn: int = 0
     weapon: WeaponState | None = None
 
@@ -161,6 +162,8 @@ class PlayerState:
     quest_reward_given: bool = False
     active_quest: str = ""
     starship_parts: int = 0
+    graveyard: list[str] = field(default_factory=list)
+    burned_cards: list[str] = field(default_factory=list)
     played_cards_this_game: list[dict] = field(default_factory=list)  # [{card_id, card_type, mana_cost, turn, mechanics, race}]
     spells_cast_this_turn: list[str] = field(default_factory=list)  # card_ids of spells cast this turn
     spells_cast_last_turn: list[str] = field(default_factory=list)  # card_ids from previous turn
@@ -176,6 +179,7 @@ class PlayerState:
             return None
         card = self.deck.pop(0)
         if len(self.hand) >= HAND_LIMIT:
+            self.burned_cards.append(card)
             return None
         self.hand.append(card)
         self.drawn_this_turn.append(card)
