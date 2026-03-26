@@ -75,7 +75,7 @@ class CardDeckOptimizer:
         hero = deck["hero"]
         original_cards = list(deck["cards"])
 
-        # Step 1: Baseline -- run games with card tracking
+        # Step 1: Baseline -- run games with real card tracking
         records: dict[str, CardPerformanceRecord] = {}
         baseline_wins = 0
         baseline_games = 0
@@ -88,22 +88,33 @@ class CardDeckOptimizer:
                 try:
                     result = run_match(
                         list(original_cards), list(opp["cards"]),
-                        hero, opp["hero"], self.card_db, max_turns=60
+                        hero, opp["hero"], self.card_db, max_turns=60,
+                        track_cards=True
                     )
                     baseline_games += 1
                     won = result.winner == "A"
                     if won:
                         baseline_wins += 1
 
-                    # Simple tracking: record which unique cards were in deck
-                    tracker = GameCardTracker(original_cards)
-                    # We can't instrument inside run_match without modifying it,
-                    # so we use a simplified approach: mark all cards as "drawn"
-                    # for stats purposes and use result to determine win correlation
-                    unique_cards = set(original_cards)
-                    for cid in unique_cards:
-                        tracker.drawn.add(cid)
-                    tracker.finalize(won, records)
+                    # Merge real card stats from instrumented match
+                    if result.card_stats:
+                        for cid, rec in result.card_stats.items():
+                            if cid in set(original_cards):
+                                if cid not in records:
+                                    records[cid] = CardPerformanceRecord(card_id=cid)
+                                dst = records[cid]
+                                dst.games_in_deck += rec.games_in_deck
+                                dst.times_drawn += rec.times_drawn
+                                dst.times_played += rec.times_played
+                                dst.times_kept_mulligan += rec.times_kept_mulligan
+                                dst.times_seen_mulligan += rec.times_seen_mulligan
+                                dst.turns_played.extend(rec.turns_played)
+                                dst.score_deltas.extend(rec.score_deltas)
+                                dst.wins_when_drawn += rec.wins_when_drawn
+                                dst.games_drawn += rec.games_drawn
+                                dst.wins_when_not_drawn += rec.wins_when_not_drawn
+                                dst.games_not_drawn += rec.games_not_drawn
+                                dst.dead_card_games += rec.dead_card_games
                 except Exception:
                     pass
 
@@ -137,11 +148,12 @@ class CardDeckOptimizer:
             if cid_remove not in current_cards:
                 continue
 
-            candidates = self._find_candidates(cid_remove, current_cards)
+            candidates = self._find_candidates(cid_remove, current_cards, top_n=15)
             best_replacement = None
             best_delta = 0
 
-            for candidate_id in candidates[:5]:
+            # Simulation-based selection: test each candidate via actual games
+            for candidate_id in candidates:
                 result = self._validate_replacement(
                     current_cards, cid_remove, candidate_id, hero
                 )
@@ -189,11 +201,16 @@ class CardDeckOptimizer:
             optimized_deck=optimized_deck,
         )
 
-    def _find_candidates(self, card_to_remove: str, current_deck: list[str]) -> list[str]:
-        """Find replacement candidates for a card."""
+    def _find_candidates(self, card_to_remove: str, current_deck: list[str],
+                          top_n: int = 15) -> list[str]:
+        """Find replacement candidates for a card.
+
+        Returns top_n candidates filtered by eligibility and sorted by a quick
+        stat-efficiency heuristic.  Final selection is done via simulation by
+        the caller.
+        """
         removed_card = self.card_db.get(card_to_remove, {})
         removed_cost = removed_card.get("mana_cost", 0) or 0
-        removed_class = removed_card.get("hero_class", "NEUTRAL")
 
         # Determine deck class
         from collections import Counter
@@ -227,22 +244,18 @@ class CardDeckOptimizer:
 
             candidates.append(cid)
 
-        # Score candidates by synergy with remaining deck
-        from src.deckbuilder.synergy import score_card_for_recipe, detect_synergies
-        from src.deckbuilder.recipes import DeckRecipe
-
-        # Create a simple recipe for scoring
-        recipe = DeckRecipe(name="opt", hero_class=deck_class, archetype="midrange")
-        remaining = [self.card_db.get(c, {}) for c in current_deck if c != card_to_remove]
-
+        # Quick stat-efficiency heuristic to narrow the pool
         scored = []
         for cid in candidates:
-            card_data = self.card_db.get(cid, {})
-            score = score_card_for_recipe(card_data, recipe, remaining)
-            scored.append((score, cid))
+            card = self.card_db.get(cid, {})
+            cost = max(card.get("mana_cost", 0) or 0, 1)
+            atk = card.get("attack", 0) or 0
+            hp = card.get("health", 0) or 0
+            efficiency = (atk + hp) / cost
+            scored.append((efficiency, cid))
 
         scored.sort(key=lambda x: -x[0])
-        return [cid for _, cid in scored]
+        return [cid for _, cid in scored[:top_n]]
 
     def _validate_replacement(self, deck: list[str], remove_id: str,
                                add_id: str, hero: str) -> ReplacementResult:

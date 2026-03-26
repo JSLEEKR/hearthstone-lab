@@ -18,10 +18,12 @@ class MatchResult:
     log: list[dict] = field(default_factory=list)  # event log dicts
     p1_hero: str = ""
     p2_hero: str = ""
+    card_stats: dict | None = None  # card_id -> CardPerformanceRecord
 
 
 def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
-              card_db: dict, max_turns: int = 60, ai_class=None) -> MatchResult:
+              card_db: dict, max_turns: int = 60, ai_class=None,
+              track_cards: bool = False) -> MatchResult:
     engine = GameEngine(card_db=card_db)
     if ai_class is None:
         from src.simulator.ai import RuleBasedAI
@@ -43,6 +45,16 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
 
     engine.start_game(state)
 
+    # Card tracking setup
+    tracker_1 = None
+    tracker_2 = None
+    if track_cards:
+        from src.simulator.card_stats import GameCardTracker, CardPerformanceRecord
+        from src.simulator.evaluator import evaluate_state
+        tracker_1 = GameCardTracker(deck_a)
+        tracker_2 = GameCardTracker(deck_b)
+        trackers = [tracker_1, tracker_2]
+
     # Mulligan
     keep_1 = ai.mulligan(state.player1.hand, card_db)
     returned_1 = [c for c in state.player1.hand if c not in keep_1]
@@ -55,6 +67,15 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
     _do_mulligan(state.player2, keep_2)
     log and log.append(0, 1, "MULLIGAN", "game",
                kept=len(keep_2), returned=len(returned_2))
+
+    # Track mulligan and initial hand as drawn
+    if track_cards:
+        tracker_1.on_mulligan(list(state.player1.hand) + returned_1, list(keep_1))
+        tracker_2.on_mulligan(list(state.player2.hand) + returned_2, list(keep_2))
+        for cid in state.player1.hand:
+            tracker_1.on_draw(cid, 0)
+        for cid in state.player2.hand:
+            tracker_2.on_draw(cid, 0)
 
     turn_count = 0
     while not state.game_over and turn_count < max_turns:
@@ -71,6 +92,9 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
             card_name = card_db.get(card_id, {}).get("name", card_id)
             log and log.append(turn_count, state.current_player_idx, "DRAW", card_id,
                        name=card_name)
+            # Track draw
+            if track_cards:
+                trackers[state.current_player_idx].on_draw(card_id, turn_count)
         elif p.fatigue_counter > 0:
             log and log.append(turn_count, state.current_player_idx, "FATIGUE", "fatigue",
                        damage=p.fatigue_counter)
@@ -80,13 +104,33 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
             action = ai.choose_action(state, engine)
             if isinstance(action, EndTurn):
                 break
+            # Track card play: capture score before action
+            _track_play_before = None
+            if track_cards and isinstance(action, PlayCard):
+                p_act = state.current_player
+                if action.hand_idx < len(p_act.hand):
+                    _track_play_card_id = p_act.hand[action.hand_idx]
+                    _track_play_before = evaluate_state(state, state.current_player_idx)
+
             _execute_action(engine, state, action, card_db, log, turn_count)
+
+            # Track card play: capture score after action
+            if track_cards and _track_play_before is not None:
+                _track_play_after = evaluate_state(state, state.current_player_idx)
+                trackers[state.current_player_idx].on_play(
+                    _track_play_card_id, turn_count, _track_play_before, _track_play_after
+                )
+
             engine.remove_dead_minions(state)
             # Log minion deaths
             # (dead minions already removed, we track via board changes)
             if state.game_over:
                 break
             action_count += 1
+
+        # Track turn end
+        if track_cards:
+            trackers[state.current_player_idx].on_turn_end(turn_count)
 
         if state.game_over:
             break
@@ -111,8 +155,16 @@ def run_match(deck_a: list[str], deck_b: list[str], hero_a: str, hero_b: str,
                winner=winner or "draw", final_turn=turn_count,
                p1_hp=state.player1.hero.health, p2_hp=state.player2.hero.health)
 
+    # Finalize card tracking
+    card_stats = None
+    if track_cards:
+        card_stats = {}
+        tracker_1.finalize(winner == "A", card_stats)
+        tracker_2.finalize(winner == "B", card_stats)
+
     return MatchResult(winner=winner, turns=turn_count,
-                       log=log.to_dicts(), p1_hero=hero_a, p2_hero=hero_b)
+                       log=log.to_dicts(), p1_hero=hero_a, p2_hero=hero_b,
+                       card_stats=card_stats)
 
 
 def _do_mulligan(player: PlayerState, keep: list[str]):
