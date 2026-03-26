@@ -721,6 +721,8 @@ class GameEngine:
             elif eff.effect_type == "draw":
                 for _ in range(eff.value):
                     player.draw_card()
+            elif eff.effect_type == "buff" and eff.target == "hero_attack":
+                player.hero.attack += eff.value
             elif eff.effect_type == "buff" and eff.target == "double_stats":
                 minion.attack *= 2
                 minion.health *= 2
@@ -893,6 +895,9 @@ class GameEngine:
         elif eff.effect_type == "draw":
             for _ in range(eff.value):
                 player.draw_card()
+
+        elif eff.effect_type == "buff" and eff.target == "hero_attack":
+            player.hero.attack += eff.value
 
         elif eff.effect_type == "buff" and player.board:
             t = player.board[-1] if player.board else None

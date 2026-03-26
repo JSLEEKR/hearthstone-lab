@@ -11,6 +11,122 @@ class SpellEffect:
     target: str = "auto"  # "enemy_hero", "enemy_minion", "all_enemy_minions", "all_minions", "friendly_minion", "self_hero", "random_enemy"
 
 
+def _parse_single_sentence(sentence: str) -> list[SpellEffect]:
+    """Parse a single Korean sentence fragment into spell effects."""
+    effects = []
+    sentence = sentence.strip().rstrip('.')
+
+    if not sentence:
+        return effects
+
+    # AoE damage to all enemies (including hero): "적 영웅과 모든 적 하수인에게 피해를 N"
+    m = re.search(r'적\s*영웅과\s*모든\s*적\s*하수인에게\s*피해를\s*(\d+)', sentence)
+    if m:
+        dmg = int(m.group(1))
+        effects.append(SpellEffect("damage", dmg, target="enemy_hero"))
+        effects.append(SpellEffect("aoe_damage", dmg, target="all_enemy_minions"))
+        return effects
+
+    # AoE damage to all minions: "모든 하수인에게 피해를 N"
+    m = re.search(r'모든\s*하수인에게\s*피해를\s*(\d+)', sentence)
+    if m:
+        effects.append(SpellEffect("aoe_damage", int(m.group(1)), target="all_minions"))
+        return effects
+
+    # AoE damage to all enemy minions: "모든 적 하수인에게 피해를 N"
+    m = re.search(r'모든\s*적\s*하수인에게\s*피해를\s*(\d+)', sentence)
+    if m:
+        effects.append(SpellEffect("aoe_damage", int(m.group(1)), target="all_enemy_minions"))
+        return effects
+
+    # Single target damage: "피해를 N 줍니다"
+    m = re.search(r'피해를\s*(\d+)\s*(?:줍니다|주고|줌)', sentence)
+    if m and '모든' not in sentence:
+        effects.append(SpellEffect("damage", int(m.group(1)), target="auto"))
+        return effects
+
+    # Armor: "방어도를 N 얻" or "방어도를 +N 얻"
+    m = re.search(r'방어도를?\s*\+?(\d+)\s*얻', sentence)
+    if m:
+        effects.append(SpellEffect("armor", int(m.group(1)), target="self_hero"))
+        return effects
+
+    # Draw: "카드를 N장 뽑습니다"
+    m = re.search(r'카드(?:를)?\s*(\d+)장', sentence)
+    if m:
+        effects.append(SpellEffect("draw", int(m.group(1))))
+        return effects
+
+    # Draw 1: "카드를 뽑습니다"
+    if '카드를 뽑습니다' in sentence or '뽑습니다' in sentence:
+        effects.append(SpellEffect("draw", 1))
+        return effects
+
+    # Buff: "+N/+N"
+    m = re.search(r'\+(\d+)/\+(\d+)', sentence)
+    if m:
+        effects.append(SpellEffect("buff", int(m.group(1)), int(m.group(2)), target="friendly_minion"))
+        return effects
+
+    # Hero attack: "영웅에게 공격력을 +N"
+    m = re.search(r'영웅에게\s*공격력을?\s*\+(\d+)', sentence)
+    if m:
+        effects.append(SpellEffect("buff", int(m.group(1)), 0, target="hero_attack"))
+        return effects
+
+    # Heal: "체력을 N 회복"
+    m = re.search(r'(?:체력|생명력)을?\s*(\d+)\s*회복', sentence)
+    if m:
+        effects.append(SpellEffect("heal", int(m.group(1)), target="auto"))
+        return effects
+
+    # Summon: "N/N ... 소환"
+    m = re.search(r'(\d+)/(\d+)\s*.*소환', sentence)
+    if m:
+        effects.append(SpellEffect("summon", int(m.group(1)), int(m.group(2))))
+        return effects
+
+    # Freeze: "빙결"
+    if '빙결' in sentence:
+        effects.append(SpellEffect("freeze_all", target="enemy_minion"))
+        return effects
+
+    return effects
+
+
+def _parse_multi_effects(text: str) -> list[SpellEffect]:
+    """Try to parse multiple effects from multi-sentence card text.
+    Returns a list of effects if successful, empty list if no multi-effect detected."""
+    clean = re.sub(r'<[^>]+>', '', text).replace('[x]', '')
+    clean = re.sub(r'\$(\d+)', r'\1', clean)
+    clean = re.sub(r'#(\d+)', r'\1', clean)
+
+    # Split on sentence endings (. or newline) but keep conditional clauses together
+    # Split on '.' followed by whitespace/newline, or on newline
+    sentences = re.split(r'\.\s*\n|\.\s+|\n', clean)
+    sentences = [s.strip().rstrip('.') for s in sentences if s.strip()]
+
+    # Only use multi-effect parsing if we have 2+ sentences
+    if len(sentences) < 2:
+        return []
+
+    # Filter out conditional/trigger sentences (these need context)
+    # e.g., "내 손에 카드가 없으면" = conditional
+    all_effects = []
+    for s in sentences:
+        # Skip conditional clauses
+        if re.search(r'(?:없으면|있으면|이상이면|미만이면|때마다|후에)', s):
+            continue
+        effs = _parse_single_sentence(s)
+        all_effects.extend(effs)
+
+    # Only return if we found at least 2 effects (otherwise fall through to normal parsing)
+    if len(all_effects) >= 2:
+        return all_effects
+
+    return []
+
+
 def parse_spell_effects(text: str) -> list[SpellEffect]:
     """Parse Korean card text into structured spell effects."""
     if not text:
@@ -22,6 +138,13 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
     text = re.sub(r'\$(\d+)', r'\1', text)  # $N -> N
     text = re.sub(r'#(\d+)', r'\1', text)  # #N -> N
     text = text.replace('[x]', '')
+
+    # --- Multi-effect pre-parsing: handle common multi-effect spells ---
+    # Split sentences and parse each independently if the text has multiple effects
+    # separated by periods or newlines, to capture ALL effects.
+    multi_effects = _parse_multi_effects(text)
+    if multi_effects:
+        return multi_effects
 
     # Grant keyword: "속공을 부여/얻습니다"
     keyword_map = {
@@ -146,6 +269,14 @@ def parse_spell_effects(text: str) -> list[SpellEffect]:
     m = re.search(r'공격력을?\s*\+(\d+)', text)
     if m and '+' in text and '/' not in text:
         effects.append(SpellEffect("buff", int(m.group(1)), 0, target="friendly_minion"))
+        return effects
+
+    # AOE damage to enemy hero AND enemy minions: "적 영웅과 모든 적 하수인에게 피해를 N"
+    m = re.search(r'적\s*영웅과\s*모든\s*적\s*하수인에게\s*피해를\s*(\d+)', text)
+    if m:
+        dmg = int(m.group(1))
+        effects.append(SpellEffect("damage", dmg, target="enemy_hero"))
+        effects.append(SpellEffect("aoe_damage", dmg, target="all_enemy_minions"))
         return effects
 
     # AOE damage to all enemies (including hero): "모든 적에게 피해를 N"
