@@ -12,7 +12,7 @@ class MinionState:
     attack: int
     health: int
     max_health: int
-    mana_cost: int
+    mana_cost: int = 0
     taunt: bool = False
     divine_shield: bool = False
     stealth: bool = False
@@ -141,7 +141,7 @@ class HeroState:
 
 @dataclass
 class PlayerState:
-    hero: HeroState
+    hero: HeroState = field(default_factory=lambda: HeroState(hero_class="NEUTRAL"))
     mana: int = 0
     max_mana: int = 0
     overload: int = 0
@@ -200,8 +200,8 @@ class PlayerState:
 
 @dataclass
 class GameState:
-    player1: PlayerState
-    player2: PlayerState
+    player1: PlayerState = field(default_factory=PlayerState)
+    player2: PlayerState = field(default_factory=PlayerState)
     turn: int = 0
     current_player_idx: int = 0
 

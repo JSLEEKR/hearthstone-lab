@@ -393,10 +393,39 @@ class GameEngine:
                     effects = parse_deathrattle_effects(card_entry.get("text", ""))
                     for eff in effects:
                         if eff.effect_type == "damage":
-                            if opponent.board:
+                            if eff.target == "enemy_hero":
+                                opponent.hero.take_damage(eff.value)
+                            elif opponent.board:
                                 import random as _rand
                                 t = _rand.choice(opponent.board)
                                 t.take_damage(eff.value)
+                            else:
+                                # No minions — damage goes to hero
+                                opponent.hero.take_damage(eff.value)
+                        elif eff.effect_type == "aoe_damage":
+                            for em in list(opponent.board):
+                                em.take_damage(eff.value)
+                            if eff.target != "all_enemy_minions":
+                                opponent.hero.take_damage(eff.value)
+                        elif eff.effect_type == "heal":
+                            player.hero.health = min(
+                                player.hero.health + eff.value, player.hero.max_health)
+                        elif eff.effect_type == "armor":
+                            player.hero.armor += eff.value
+                        elif eff.effect_type == "buff" and player.board:
+                            # Buff a random friendly minion
+                            import random as _rand
+                            t = _rand.choice([m for m in player.board if not m.is_dead] or player.board)
+                            t.attack += eff.value
+                            t.health += eff.value2
+                            t.max_health += eff.value2
+                        elif eff.effect_type == "random_summon" and not player.board_full:
+                            player.board.append(MinionState(
+                                card_id="token", name="Token",
+                                attack=max(eff.value, 1), health=max(eff.value, 1),
+                                max_health=max(eff.value, 1), mana_cost=0,
+                                summoned_this_turn=True,
+                            ))
                         elif eff.effect_type == "draw":
                             for _ in range(eff.value):
                                 player.draw_card()
