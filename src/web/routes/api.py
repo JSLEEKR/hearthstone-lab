@@ -376,6 +376,11 @@ def import_deck(
     return {"success": True, "deck_id": deck.id}
 
 
+@router.get("/deck/export")
+def export_deck_query(deck_id: int, db: Session = Depends(get_db)):
+    return export_deck(deck_id, db)
+
+
 @router.get("/deck/{deck_id}/export")
 def export_deck(deck_id: int, db: Session = Depends(get_db)):
     from src.core.deckstring import encode_deckstring
