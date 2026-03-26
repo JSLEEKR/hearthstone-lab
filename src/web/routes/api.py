@@ -214,6 +214,8 @@ def search_cards(
     per_page: int = 24,
 ):
     search_term = q or search  # support both parameter names
+    per_page = max(per_page, 1)  # prevent division by zero
+    page = max(page, 1)
     cards, total = _query_cards(db, search_term, hero_class, cost, rarity, set_name, card_type, format_filter, class_only, page, per_page)
 
     lang = _get_lang(request)
@@ -611,8 +613,12 @@ def run_tournament(
     from src.simulator.tournament import Tournament
     from src.simulator.ai import RuleBasedAI, ScoreBasedAI, MCTSAI
 
-    ai_map = {"rule": RuleBasedAI, "score": ScoreBasedAI, "mcts": MCTSAI(iterations=50)}
-    ai_class = ai_map.get(ai_level, RuleBasedAI)
+    if ai_level == "mcts":
+        ai_class = MCTSAI(iterations=50)
+    elif ai_level == "score":
+        ai_class = ScoreBasedAI
+    else:
+        ai_class = RuleBasedAI
 
     try:
         ids = [int(x.strip()) for x in deck_ids.split(",") if x.strip()]
