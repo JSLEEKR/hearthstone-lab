@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
@@ -256,7 +256,7 @@ def search_cards(
 def get_card_detail(card_id: str, db: Session = Depends(get_db)):
     card = db.query(Card).filter_by(card_id=card_id).first()
     if not card:
-        return {"error": "Card not found"}
+        return JSONResponse({"error": "Card not found"}, status_code=404)
     return {
         "card_id": card.card_id, "name": card.name, "name_ko": card.name_ko,
         "mana_cost": card.mana_cost, "attack": card.attack, "health": card.health,
@@ -307,13 +307,18 @@ def add_card_to_deck(
 ):
     card = db.query(Card).filter_by(card_id=card_id).first()
     if not card:
-        return {"success": False, "error": "Card not found"}
+        return JSONResponse({"success": False, "error": "Card not found"}, status_code=404)
+
+    # Enforce 30-card deck limit
+    total = sum(dc.count for dc in db.query(DeckCard).filter_by(deck_id=deck_id).all())
+    if total >= 30:
+        return JSONResponse({"success": False, "error": "Deck is full (30 cards)"}, status_code=400)
 
     existing = db.query(DeckCard).filter_by(deck_id=deck_id, card_id=card.id).first()
     if existing:
         max_count = 1 if card.rarity == "LEGENDARY" else 2
         if existing.count >= max_count:
-            return {"success": False, "error": "Max copies reached"}
+            return JSONResponse({"success": False, "error": "Max copies reached"}, status_code=400)
         existing.count += 1
     else:
         db.add(DeckCard(deck_id=deck_id, card_id=card.id, count=1))
@@ -327,11 +332,11 @@ def remove_card_from_deck(
 ):
     card = db.query(Card).filter_by(card_id=card_id).first()
     if not card:
-        return {"success": False, "error": "Card not found"}
+        return JSONResponse({"success": False, "error": "Card not found"}, status_code=404)
 
     existing = db.query(DeckCard).filter_by(deck_id=deck_id, card_id=card.id).first()
     if not existing:
-        return {"success": False, "error": "Card not in deck"}
+        return JSONResponse({"success": False, "error": "Card not in deck"}, status_code=404)
 
     if existing.count > 1:
         existing.count -= 1
@@ -550,9 +555,12 @@ def run_tournament(
     ai_map = {"rule": RuleBasedAI, "score": ScoreBasedAI, "mcts": MCTSAI(iterations=50)}
     ai_class = ai_map.get(ai_level, RuleBasedAI)
 
-    ids = [int(x.strip()) for x in deck_ids.split(",") if x.strip()]
+    try:
+        ids = [int(x.strip()) for x in deck_ids.split(",") if x.strip()]
+    except ValueError:
+        return JSONResponse({"success": False, "error": "Invalid deck_ids: must be comma-separated integers"}, status_code=400)
     if len(ids) < 2:
-        return {"success": False, "error": "Need at least 2 decks"}
+        return JSONResponse({"success": False, "error": "Need at least 2 decks"}, status_code=400)
 
     from src.db.tables import DeckCard, Card
     decks_data = {}

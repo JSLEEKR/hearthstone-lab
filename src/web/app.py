@@ -1,4 +1,6 @@
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -11,6 +13,22 @@ BASE_DIR = Path(__file__).parent
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Hearthstone Lab")
+
+    # CORS
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Global exception handler
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        return JSONResponse(
+            {"success": False, "error": str(exc)},
+            status_code=500,
+        )
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
