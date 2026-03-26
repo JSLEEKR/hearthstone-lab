@@ -100,13 +100,16 @@ class RuleBasedAI(BaseAI):
                 if can_lethal:
                     score = 500 + atk_value  # Go for lethal!
                 else:
-                    # Base face score scales with damage dealt
+                    # Base face score
                     score = atk_value * 5.0
-                    # Strong bonus when opponent getting low
+                    # Bonus when opponent getting low
                     if opp_hp <= 15:
                         score += atk_value * 3.0
                     if opp_hp <= 10:
                         score += atk_value * 5.0
+                    # Moderate late game urgency
+                    if state.turn >= 10:
+                        score += atk_value * 1.5
             else:
                 defender = opponent.board[a.target_idx]
                 kills = defender.health <= atk_value
@@ -120,17 +123,17 @@ class RuleBasedAI(BaseAI):
                         score = 150 + defender.mana_cost
                     else:
                         score = 80  # still need to hit taunt
+                elif kills and survives and defender.attack >= 3:
+                    # Trade into real threats when we survive
+                    score = 50 + defender.mana_cost * 2
                 elif kills and survives and defender.attack >= 2:
-                    # Only trade favorably if the target is actually threatening
-                    score = 40 + defender.mana_cost * 2
-                elif kills and survives:
-                    # Killing a small minion while surviving - minor benefit
-                    score = 15 + defender.mana_cost
+                    # Trade into moderate threats
+                    score = 35 + defender.mana_cost
                 elif kills and defender.attack >= 3:
-                    # Even trade against a real threat - worth it
+                    # Even trade against a real threat
                     score = 25 + defender.mana_cost
                 else:
-                    # Bad trade or killing tiny things at cost - not worth it
+                    # Bad trade or killing tiny things - almost never worth it
                     score = -30
 
             if score > best_score:
