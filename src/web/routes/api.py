@@ -436,8 +436,10 @@ def run_simulation(
             card_db[card.card_id] = {
                 "card_id": card.card_id, "card_type": card.card_type,
                 "mana_cost": card.mana_cost, "attack": card.attack or 0,
-                "health": card.health or 0, "mechanics": card.mechanics or [],
-                "name": card.name,
+                "health": card.health or 0, "durability": card.durability or 1,
+                "mechanics": card.mechanics or [],
+                "name": card.name, "text": card.text or "",
+                "rarity": card.rarity or "",
             }
             for _ in range(dc.count):
                 deck_list.append(card.card_id)
@@ -506,8 +508,10 @@ def run_single_match(
             card_db[card.card_id] = {
                 "card_id": card.card_id, "card_type": card.card_type,
                 "mana_cost": card.mana_cost, "attack": card.attack or 0,
-                "health": card.health or 0, "mechanics": card.mechanics or [],
-                "name": card.name,
+                "health": card.health or 0, "durability": card.durability or 1,
+                "mechanics": card.mechanics or [],
+                "name": card.name, "text": card.text or "",
+                "rarity": card.rarity or "",
             }
             for _ in range(dc.count):
                 deck_list.append(card.card_id)
@@ -569,8 +573,10 @@ def run_tournament(
             combined_card_db[card.card_id] = {
                 "card_id": card.card_id, "card_type": card.card_type,
                 "mana_cost": card.mana_cost, "attack": card.attack or 0,
-                "health": card.health or 0, "mechanics": card.mechanics or [],
+                "health": card.health or 0, "durability": card.durability or 1,
+                "mechanics": card.mechanics or [],
                 "name": card.name, "text": card.text or "",
+                "rarity": card.rarity or "",
             }
             for _ in range(dc.count):
                 deck_list.append(card.card_id)

@@ -165,9 +165,12 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
                 text = card_data.get("text", "")
                 if text and "전투의 함성" in text:
                     from src.simulator.spell_parser import parse_battlecry_effects
+                    from src.simulator.game_state import MinionState as _MS
                     bc_effects = parse_battlecry_effects(text)
                     if bc_effects:
-                        engine._apply_battlecry_effects(state, player, None, bc_effects)
+                        dummy = _MS(card_id=card_data.get("card_id",""), name=card_data.get("name",""),
+                                    attack=0, health=1, max_health=1, mana_cost=0)
+                        engine._apply_battlecry_effects(state, player, dummy, bc_effects)
                 player.cards_played_this_turn += 1
                 log and log.append(turn_count, state.current_player_idx, "PLAY_WEAPON", card_id,
                            name=card_name, cost=cost)
@@ -178,9 +181,12 @@ def _execute_action(engine: GameEngine, state: GameState, action, card_db: dict,
                 text = card_data.get("text", "")
                 if text and "전투의 함성" in text:
                     from src.simulator.spell_parser import parse_battlecry_effects
+                    from src.simulator.game_state import MinionState as _MS
                     bc_effects = parse_battlecry_effects(text)
                     if bc_effects:
-                        engine._apply_battlecry_effects(state, player, None, bc_effects)
+                        dummy = _MS(card_id=card_data.get("card_id",""), name=card_data.get("name",""),
+                                    attack=0, health=1, max_health=1, mana_cost=0)
+                        engine._apply_battlecry_effects(state, player, dummy, bc_effects)
                 player.cards_played_this_turn += 1
                 log and log.append(turn_count, state.current_player_idx, "PLAY_HERO", card_id,
                            name=card_name, cost=cost)
