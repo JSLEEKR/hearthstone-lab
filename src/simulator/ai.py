@@ -21,32 +21,50 @@ class BaseAI:
 
 
 class RuleBasedAI(BaseAI):
-    """Level 1: Fast rule-based AI. Plays cards first, then efficient trades, then face."""
+    """Level 1: Fast rule-based AI. Plays cards on curve, uses hero power,
+    makes efficient trades, and pushes face damage."""
 
     def choose_action(self, state: GameState, engine: GameEngine):
         actions = engine.get_legal_actions(state)
 
+        # Use hero power BEFORE attacks if it grants attack (Rogue weapon, Druid, DH)
+        # so the hero can attack this turn
+        hero_powers = [a for a in actions if isinstance(a, HeroPower)]
+        hero_class = state.current_player.hero.hero_class
+        attack_granting_classes = {"ROGUE", "DRUID", "DEMON_HUNTER"}
+        if hero_powers and hero_class in attack_granting_classes:
+            return hero_powers[0]
+
+        # Play cards (highest cost first for mana efficiency)
         plays = [a for a in actions if isinstance(a, PlayCard)]
         if plays:
             plays.sort(key=lambda p: engine.card_db.get(p.card_id, {}).get("mana_cost", 0),
                        reverse=True)
             return plays[0]
 
+        # Attack phase: evaluate all attacks and pick best
         attacks = [a for a in actions if isinstance(a, Attack)]
         if attacks:
-            return self._best_attack(attacks, state)
+            return self._best_attack(attacks, state, engine)
 
-        hero_powers = [a for a in actions if isinstance(a, HeroPower)]
+        # Use hero power after attacks for non-attack classes (Mage, Hunter, etc.)
         if hero_powers:
             return hero_powers[0]
 
         return EndTurn()
 
-    def _best_attack(self, attacks: list[Attack], state: GameState) -> Attack:
+    def _best_attack(self, attacks: list[Attack], state: GameState,
+                     engine: 'GameEngine | None' = None) -> Attack:
         player = state.current_player
         opponent = state.opponent
+        opp_hp = opponent.hero.health + opponent.hero.armor
         best = None
         best_score = -9999
+
+        # Calculate total damage we can push to face this turn
+        total_board_attack = sum(m.attack for m in player.board if m.can_attack_hero)
+        total_board_attack += player.hero.total_attack if player.hero.total_attack > 0 else 0
+        can_lethal = total_board_attack >= opp_hp
 
         for a in attacks:
             if a.attacker_idx == -1:
@@ -58,19 +76,40 @@ class RuleBasedAI(BaseAI):
                 atk_health = m.health
 
             if a.target_is_hero:
-                score = atk_value * 1.5
+                # Face damage scoring: scale with opponent's low health
+                if can_lethal:
+                    score = 500 + atk_value  # Go for lethal!
+                else:
+                    # Base face score: proportional to damage dealt
+                    # Higher score when opponent is lower HP
+                    score = atk_value * 3.0
+                    # Bonus when opponent is getting low
+                    if opp_hp <= 15:
+                        score += atk_value * 2.0
+                    if opp_hp <= 10:
+                        score += atk_value * 3.0
             else:
                 defender = opponent.board[a.target_idx]
                 kills = defender.health <= atk_value
                 survives = atk_health > defender.attack
-                if kills and survives:
-                    score = 100 + defender.mana_cost
+
+                if defender.taunt:
+                    # Must kill taunts - high priority
+                    if kills and survives:
+                        score = 200 + defender.mana_cost
+                    elif kills:
+                        score = 150 + defender.mana_cost
+                    else:
+                        score = 80  # still need to hit taunt
+                elif kills and survives:
+                    # Favorable trade
+                    score = 60 + defender.mana_cost * 2
                 elif kills:
-                    score = 50 + defender.mana_cost
-                elif defender.taunt:
-                    score = 30
+                    # Even trade
+                    score = 30 + defender.mana_cost
                 else:
-                    score = -10
+                    # Bad trade - almost never worth it
+                    score = -20
 
             if score > best_score:
                 best_score = score
