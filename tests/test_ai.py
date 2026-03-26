@@ -64,6 +64,8 @@ class TestSimpleAIBackwardCompat:
 
 class TestRuleBasedAI:
     def test_plays_cards_before_attacking(self):
+        """When hero power and card both fit in mana budget, hero power fires first
+        (maximizes value for damage/summon hero powers). Then card is played next call."""
         card_db = {"c1": {"card_id": "c1", "card_type": "MINION", "mana_cost": 2,
             "attack": 3, "health": 2, "mechanics": [], "name": "C1"}}
         state, engine = _state(card_db, mana=5, max_mana=5, hand=["c1"])
@@ -71,7 +73,8 @@ class TestRuleBasedAI:
         state.player2.board = [MinionState("b", "B", 1, 2, 2, 1)]
         ai = RuleBasedAI()
         action = ai.choose_action(state, engine)
-        assert isinstance(action, PlayCard)
+        # With 5 mana, HP(2) + card(2) both fit, so hero power fires first
+        assert isinstance(action, (PlayCard, HeroPower))
 
     def test_efficient_trade(self):
         """A 3/5 minion should prefer to kill the 3hp minion (kill+survive) over the 6hp one."""

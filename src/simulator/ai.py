@@ -26,28 +26,45 @@ class RuleBasedAI(BaseAI):
 
     def choose_action(self, state: GameState, engine: GameEngine):
         actions = engine.get_legal_actions(state)
+        player = state.current_player
+        hero_class = player.hero.hero_class
 
-        # Use hero power BEFORE attacks if it grants attack (Rogue weapon, Druid, DH)
-        # so the hero can attack this turn
         hero_powers = [a for a in actions if isinstance(a, HeroPower)]
-        hero_class = state.current_player.hero.hero_class
+        plays = [a for a in actions if isinstance(a, PlayCard)]
+        attacks = [a for a in actions if isinstance(a, Attack)]
+
+        # Use hero power BEFORE playing cards for attack-granting classes
+        # (Rogue weapon, Druid +1 atk, DH +1 atk) so hero can attack this turn
         attack_granting_classes = {"ROGUE", "DRUID", "DEMON_HUNTER"}
         if hero_powers and hero_class in attack_granting_classes:
             return hero_powers[0]
 
+        # Hero power mana management: ensure we use HP when we have enough mana
+        # for both HP and a card play (e.g., 3 mana = HP(2) + 1-cost card).
+        # Only use HP first if both can fit; otherwise play the card.
+        if hero_powers and plays:
+            hp_cost = player.hero.hero_power_cost
+            remaining_after_hp = player.mana - hp_cost
+            # Check if any card fits after using hero power
+            can_play_after_hp = any(
+                engine.card_db.get(p.card_id, {}).get("mana_cost", 0) <= remaining_after_hp
+                for p in plays
+            )
+            if can_play_after_hp:
+                # Using HP first still allows a card play - do HP first
+                return hero_powers[0]
+
         # Play cards (highest cost first for mana efficiency)
-        plays = [a for a in actions if isinstance(a, PlayCard)]
         if plays:
             plays.sort(key=lambda p: engine.card_db.get(p.card_id, {}).get("mana_cost", 0),
                        reverse=True)
             return plays[0]
 
         # Attack phase: evaluate all attacks and pick best
-        attacks = [a for a in actions if isinstance(a, Attack)]
         if attacks:
             return self._best_attack(attacks, state, engine)
 
-        # Use hero power after attacks for non-attack classes (Mage, Hunter, etc.)
+        # Use hero power after playing cards and attacking
         if hero_powers:
             return hero_powers[0]
 
