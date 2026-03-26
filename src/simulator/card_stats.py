@@ -69,7 +69,7 @@ class GameCardTracker:
 
     def __init__(self, deck_card_ids: list[str]):
         self.deck_set = set(deck_card_ids)
-        self.drawn: set[str] = set()
+        self.drawn_count: dict[str, int] = {}  # card_id -> number of times drawn
         self.played: list[tuple[str, int]] = []  # (card_id, turn)
         self.hand_draw_turn: dict[str, int] = {}  # card_id -> turn drawn
         self.mulligan_offered: list[str] = []
@@ -79,7 +79,7 @@ class GameCardTracker:
 
     def on_draw(self, card_id: str, turn: int):
         if card_id in self.deck_set:
-            self.drawn.add(card_id)
+            self.drawn_count[card_id] = self.drawn_count.get(card_id, 0) + 1
             if card_id not in self.hand_draw_turn:
                 self.hand_draw_turn[card_id] = turn
 
@@ -107,9 +107,10 @@ class GameCardTracker:
             rec = records[card_id]
             rec.games_in_deck += 1
 
-            was_drawn = card_id in self.drawn
+            draw_count = self.drawn_count.get(card_id, 0)
+            was_drawn = draw_count > 0
             if was_drawn:
-                rec.times_drawn += 1
+                rec.times_drawn += draw_count
                 rec.games_drawn += 1
                 if won:
                     rec.wins_when_drawn += 1
