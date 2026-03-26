@@ -70,6 +70,8 @@ class MetaDeckBuilder:
         self.max_decks_per_class = max_decks_per_class
         self.ai_class = ai_class
         self.card_db = {}
+        self._optimized_decks: list[dict] = []
+        self._matchup_matrix: dict = {}
 
     def run(self) -> MetaReport:
         """Execute the full pipeline."""
@@ -84,6 +86,9 @@ class MetaDeckBuilder:
         logger.info("Phase 2: Optimizing decks...")
         optimized = self._phase2_optimize(seeds)
         logger.info(f"  {len(optimized)} decks after optimization")
+
+        # Cache optimized decks for Phase 4 use
+        self._optimized_decks = optimized
 
         logger.info("Phase 3: Running meta tournament...")
         report = self._phase3_tournament(optimized)
@@ -212,6 +217,9 @@ class MetaDeckBuilder:
         )
         result = tourney.run()
 
+        # Cache matchup matrix for Phase 4 use
+        self._matchup_matrix = result.matrix
+
         # Build tier list from tournament rankings
         # result is a TournamentResult dataclass with .rankings attribute
         tier_list = []
@@ -256,3 +264,46 @@ class MetaDeckBuilder:
             total_decks=len(decks),
             total_matches=self.matches_per_pair * len(decks) * (len(decks) - 1) // 2,
         )
+
+    def find_ladder_king(self, meta_weights: dict | None = None) -> "LadderResult":
+        """Phase 4A: Find the single best deck for climbing ranked ladder.
+
+        Must call run() first to build the deck pool and matchup matrix.
+        Returns: LadderResult with best deck and matchup details.
+        """
+        from src.deckbuilder.ladder import LadderOptimizer
+
+        optimizer = LadderOptimizer(
+            card_db=self.card_db,
+            meta_field=self._optimized_decks,
+            meta_weights=meta_weights,
+            generations=3,
+            matches_per_eval=self.opt_matches,
+        )
+        return optimizer.find_best(self._optimized_decks, self._matchup_matrix)
+
+    def find_championship_lineup(self, opponent_lineups=None) -> "LineupResult":
+        """Phase 4B: Find the best 4-deck Conquest lineup for World Championship.
+
+        Must call run() first to build the deck pool and matchup matrix.
+        Returns: LineupResult with 4 decks, conquest winrate, and ban recommendations.
+        """
+        from src.deckbuilder.lineup import LineupOptimizer
+
+        optimizer = LineupOptimizer(
+            deck_pool=self._optimized_decks,
+            matchup_matrix=self._matchup_matrix,
+            card_db=self.card_db,
+        )
+        return optimizer.find_best_lineup(opponent_lineups)
+
+    def full_analysis(self, meta_weights=None) -> dict:
+        """Run everything: meta tier list + ladder king + championship lineup."""
+        report = self.run()
+        ladder = self.find_ladder_king(meta_weights)
+        lineup = self.find_championship_lineup()
+        return {
+            "meta_report": report,
+            "ladder_king": ladder,
+            "championship_lineup": lineup,
+        }
