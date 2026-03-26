@@ -12,6 +12,7 @@ W_LETHAL = 1000.0
 
 def _minion_value(m: MinionState) -> float:
     val = m.attack * W_BOARD_ATK + m.health * W_BOARD_HP
+    if m.attack == 0: val -= 1.0  # 0-attack minions are much less useful
     if m.taunt: val += W_TAUNT
     if m.divine_shield: val += W_DIVINE_SHIELD
     if m.poisonous: val += 4.0

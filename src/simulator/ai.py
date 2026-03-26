@@ -104,9 +104,11 @@ class RuleBasedAI(BaseAI):
                         score += atk_value * 3.0
                     if opp_hp <= 10:
                         score += atk_value * 5.0
-                    # Late game: slightly more aggressive
-                    if state.turn >= 12:
-                        score += atk_value * 1.0
+                    # Late game: more aggressive as game goes longer
+                    if state.turn >= 10:
+                        score += atk_value * 1.5
+                    if state.turn >= 15:
+                        score += atk_value * 2.0
             else:
                 defender = opponent.board[a.target_idx]
                 kills = defender.health <= atk_value
