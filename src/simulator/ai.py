@@ -66,6 +66,9 @@ class RuleBasedAI(BaseAI):
         total_board_attack += player.hero.total_attack if player.hero.total_attack > 0 else 0
         can_lethal = total_board_attack >= opp_hp
 
+        # Check if opponent has any threatening minions (attack >= 3)
+        has_threats = any(m.attack >= 3 for m in opponent.board)
+
         for a in attacks:
             if a.attacker_idx == -1:
                 atk_value = player.hero.total_attack
@@ -76,18 +79,17 @@ class RuleBasedAI(BaseAI):
                 atk_health = m.health
 
             if a.target_is_hero:
-                # Face damage scoring: scale with opponent's low health
+                # Face damage scoring
                 if can_lethal:
                     score = 500 + atk_value  # Go for lethal!
                 else:
-                    # Base face score: proportional to damage dealt
-                    # Higher score when opponent is lower HP
-                    score = atk_value * 3.0
-                    # Bonus when opponent is getting low
+                    # Base face score scales with damage dealt
+                    score = atk_value * 5.0
+                    # Strong bonus when opponent getting low
                     if opp_hp <= 15:
-                        score += atk_value * 2.0
-                    if opp_hp <= 10:
                         score += atk_value * 3.0
+                    if opp_hp <= 10:
+                        score += atk_value * 5.0
             else:
                 defender = opponent.board[a.target_idx]
                 kills = defender.health <= atk_value
@@ -101,15 +103,18 @@ class RuleBasedAI(BaseAI):
                         score = 150 + defender.mana_cost
                     else:
                         score = 80  # still need to hit taunt
+                elif kills and survives and defender.attack >= 2:
+                    # Only trade favorably if the target is actually threatening
+                    score = 40 + defender.mana_cost * 2
                 elif kills and survives:
-                    # Favorable trade
-                    score = 60 + defender.mana_cost * 2
-                elif kills:
-                    # Even trade
-                    score = 30 + defender.mana_cost
+                    # Killing a small minion while surviving - minor benefit
+                    score = 15 + defender.mana_cost
+                elif kills and defender.attack >= 3:
+                    # Even trade against a real threat - worth it
+                    score = 25 + defender.mana_cost
                 else:
-                    # Bad trade - almost never worth it
-                    score = -20
+                    # Bad trade or killing tiny things at cost - not worth it
+                    score = -30
 
             if score > best_score:
                 best_score = score
