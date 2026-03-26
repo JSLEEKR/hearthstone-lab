@@ -39,19 +39,16 @@ class RuleBasedAI(BaseAI):
         if hero_powers and hero_class in attack_granting_classes:
             return hero_powers[0]
 
-        # Hero power mana management: ensure we use HP when we have enough mana
-        # for both HP and a card play (e.g., 3 mana = HP(2) + 1-cost card).
-        # Only use HP first if both can fit; otherwise play the card.
+        # Hero power mana management: use HP before cards when both fit
+        # This ensures damage-dealing hero powers (Hunter, Mage) fire every turn
         if hero_powers and plays:
             hp_cost = player.hero.hero_power_cost
             remaining_after_hp = player.mana - hp_cost
-            # Check if any card fits after using hero power
             can_play_after_hp = any(
                 engine.card_db.get(p.card_id, {}).get("mana_cost", 0) <= remaining_after_hp
                 for p in plays
             )
             if can_play_after_hp:
-                # Using HP first still allows a card play - do HP first
                 return hero_powers[0]
 
         # Play cards (highest cost first for mana efficiency)

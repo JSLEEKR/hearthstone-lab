@@ -31,10 +31,19 @@ def evaluate_state(state: GameState, player_idx: int) -> float:
         return -W_LETHAL
 
     score = 0.0
-    score += (me.hero.health + me.hero.armor) * W_HERO_HP
-    score -= (opp.hero.health + opp.hero.armor) * W_HERO_HP
+    score += me.hero.health * W_HERO_HP + me.hero.armor * W_ARMOR
+    score -= opp.hero.health * W_HERO_HP + opp.hero.armor * W_ARMOR
+
+    # Board value
     score += sum(_minion_value(m) for m in me.board)
     score -= sum(_minion_value(m) for m in opp.board)
+
+    # Hand advantage
     score += len(me.hand) * W_HAND
     score -= len(opp.hand) * W_HAND
+
+    # Deck size difference: having more cards in deck is a small advantage
+    deck_diff = len(me.deck) - len(opp.deck)
+    score += deck_diff * 0.3
+
     return score
