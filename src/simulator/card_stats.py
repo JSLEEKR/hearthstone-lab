@@ -22,7 +22,7 @@ class CardPerformanceRecord:
 
     @property
     def play_rate(self) -> float:
-        return self.times_played / max(self.times_drawn, 1)
+        return min(self.times_played / max(self.times_drawn, 1), 1.0)
 
     @property
     def drawn_winrate(self) -> float:
