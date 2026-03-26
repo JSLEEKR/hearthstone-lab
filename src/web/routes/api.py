@@ -1,10 +1,14 @@
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
 from src.db.tables import Card, Deck, DeckCard
 from src.web.i18n import t, get_set_name, get_card_image_url, DEFAULT_LANG
+
+VALID_CLASSES = {"MAGE", "WARRIOR", "HUNTER", "PRIEST", "PALADIN", "ROGUE",
+                 "DRUID", "WARLOCK", "SHAMAN", "DEMON_HUNTER", "DEATH_KNIGHT"}
 
 router = APIRouter()
 
@@ -198,6 +202,7 @@ def search_cards(
     request: Request,
     db: Session = Depends(get_db),
     q: str = "",
+    search: str = "",
     hero_class: str = "",
     cost: int | None = None,
     rarity: str = "",
@@ -208,7 +213,8 @@ def search_cards(
     page: int = 1,
     per_page: int = 24,
 ):
-    cards, total = _query_cards(db, q, hero_class, cost, rarity, set_name, card_type, format_filter, class_only, page, per_page)
+    search_term = q or search  # support both parameter names
+    cards, total = _query_cards(db, search_term, hero_class, cost, rarity, set_name, card_type, format_filter, class_only, page, per_page)
 
     lang = _get_lang(request)
 
@@ -295,7 +301,9 @@ def create_deck(
     name: str, hero_class: str, format: str = "standard",
     db: Session = Depends(get_db),
 ):
-    deck = Deck(name=name, hero_class=hero_class, format=format, source="manual")
+    if hero_class.upper() not in VALID_CLASSES:
+        return JSONResponse({"success": False, "error": f"Invalid hero class: {hero_class}"}, status_code=400)
+    deck = Deck(name=name, hero_class=hero_class.upper(), format=format, source="manual")
     db.add(deck)
     db.commit()
     return {"deck_id": deck.id, "name": deck.name}
@@ -308,6 +316,14 @@ def add_card_to_deck(
     card = db.query(Card).filter_by(card_id=card_id).first()
     if not card:
         return JSONResponse({"success": False, "error": "Card not found"}, status_code=404)
+
+    deck = db.query(Deck).filter_by(id=deck_id).first()
+    if not deck:
+        return JSONResponse({"success": False, "error": "Deck not found"}, status_code=404)
+
+    # Class validation: card must be NEUTRAL or match deck class
+    if card.hero_class and card.hero_class not in ("NEUTRAL", deck.hero_class):
+        return JSONResponse({"success": False, "error": f"Card class {card.hero_class} doesn't match deck class {deck.hero_class}"}, status_code=400)
 
     # Enforce 30-card deck limit
     total = sum(dc.count for dc in db.query(DeckCard).filter_by(deck_id=deck_id).all())
@@ -367,13 +383,18 @@ def import_deck(
     db.add(deck)
     db.commit()
 
+    missing_dbfs = []
     for dbf_id, count in decoded["cards"].items():
         card = db.query(Card).filter_by(dbf_id=dbf_id).first()
-        if card:
-            db.add(DeckCard(deck_id=deck.id, card_id=card.id, count=count))
+        if not card:
+            missing_dbfs.append(dbf_id)
+            continue
+        db.add(DeckCard(deck_id=deck.id, card_id=card.id, count=count))
     db.commit()
 
-    return {"success": True, "deck_id": deck.id}
+    return {"success": True, "deck_id": deck.id,
+            "missing_cards": len(missing_dbfs),
+            "warning": f"{len(missing_dbfs)} cards not found in database" if missing_dbfs else None}
 
 
 @router.get("/deck/export")
@@ -413,16 +434,51 @@ def ai_recommend(
     db: Session = Depends(get_db),
 ):
     from src.deckbuilder.auto import AutoDeckBuilder
+    from src.core.deckstring import encode_deckstring
+
     builder = AutoDeckBuilder(db)
-    deck = builder.generate_deck(hero_class=hero_class, format=format, archetype=archetype)
-    return deck
+    result = builder.generate_deck(hero_class=hero_class, format=format, archetype=archetype)
+
+    # Save to DB
+    deck = Deck(
+        name=f"AI {(archetype or 'midrange').title()} {hero_class}",
+        hero_class=hero_class, format=format, source="ai",
+    )
+    db.add(deck)
+    db.commit()
+
+    # Build deckstring and save cards
+    card_dbf_map = {}
+    for card_info in result["cards"]:
+        card = db.query(Card).filter_by(card_id=card_info["card_id"]).first()
+        if card:
+            count = card_info.get("count", 1)
+            db.add(DeckCard(deck_id=deck.id, card_id=card.id, count=count))
+            card_dbf_map[card.dbf_id] = card_dbf_map.get(card.dbf_id, 0) + count
+    db.commit()
+
+    # Generate deckstring
+    hero_card = db.query(Card).filter(
+        Card.hero_class == hero_class, Card.card_type == "HERO"
+    ).first()
+    hero_dbf = hero_card.dbf_id if hero_card else 274
+    deckstring = encode_deckstring(hero_dbf, card_dbf_map)
+
+    result["success"] = True
+    result["deck_id"] = deck.id
+    result["deckstring"] = deckstring
+    return result
 
 
 @router.post("/simulation/run")
 def run_simulation(
     deck_a_id: int, deck_b_id: int, num_matches: int = 10,
+    include_logs: bool = True,
     db: Session = Depends(get_db),
 ):
+    if num_matches < 1:
+        return JSONResponse({"success": False, "error": "num_matches must be at least 1"}, status_code=400)
+
     # Get deck cards
     results = {"deck_a_wins": 0, "deck_b_wins": 0, "draws": 0, "matches": []}
 
@@ -474,16 +530,14 @@ def run_simulation(
         else:
             results["draws"] += 1
 
-        # Include logs for first 3 matches only to avoid huge responses
-        if i < 3:
-            match_logs.append({
-                "game_num": i + 1,
-                "winner": result.winner,
-                "turns": result.turns,
-                "p1_hero": result.p1_hero,
-                "p2_hero": result.p2_hero,
-                "log": result.log,
-            })
+        match_logs.append({
+            "game_num": i + 1,
+            "winner": result.winner,
+            "turns": result.turns,
+            "p1_hero": result.p1_hero,
+            "p2_hero": result.p2_hero,
+            "log": result.log if include_logs else [],
+        })
 
     results["deck_a_winrate"] = round(results["deck_a_wins"] / actual_matches * 100, 1) if actual_matches > 0 else 0
     results["deck_b_winrate"] = round(results["deck_b_wins"] / actual_matches * 100, 1) if actual_matches > 0 else 0
@@ -606,5 +660,27 @@ def run_tournament(
         "matrix": result.matrix,
         "summary": result.summary(),
     }
+
+
+@router.get("/decks")
+def list_decks(db: Session = Depends(get_db)):
+    decks = db.query(Deck).all()
+    return {"decks": [
+        {"id": d.id, "name": d.name, "hero_class": d.hero_class,
+         "format": d.format, "source": d.source,
+         "card_count": db.query(func.sum(DeckCard.count)).filter_by(deck_id=d.id).scalar() or 0}
+        for d in decks
+    ]}
+
+
+@router.delete("/deck/{deck_id}")
+def delete_deck(deck_id: int, db: Session = Depends(get_db)):
+    deck = db.query(Deck).filter_by(id=deck_id).first()
+    if not deck:
+        return JSONResponse({"success": False, "error": "Deck not found"}, status_code=404)
+    db.query(DeckCard).filter_by(deck_id=deck_id).delete()
+    db.delete(deck)
+    db.commit()
+    return {"success": True}
 
 

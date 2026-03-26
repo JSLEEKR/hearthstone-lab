@@ -152,21 +152,38 @@ class MetaDeckBuilder:
 
         recipes = build_recipes(classes=self.classes, archetypes=self.archetypes)
         seeds = []
+        errors = []
 
         # Track per-class count
         class_count = {}
+        class_attempted = {}
         for recipe in recipes:
             cls = recipe.hero_class
             if class_count.get(cls, 0) >= self.max_decks_per_class:
                 continue
 
+            class_attempted[cls] = class_attempted.get(cls, 0) + 1
             try:
                 deck = build_deck_from_recipe(recipe, self.card_db)
                 if len(deck["cards"]) >= 30:
                     seeds.append(deck)
                     class_count[cls] = class_count.get(cls, 0) + 1
+                else:
+                    msg = f"{recipe.name}: only {len(deck['cards'])} cards (need 30)"
+                    errors.append(msg)
+                    logger.warning(msg)
             except Exception as e:
-                logger.warning(f"Failed to build {recipe.name}: {e}")
+                msg = f"{recipe.name}: {str(e)}"
+                errors.append(msg)
+                logger.error(f"Failed to build {recipe.name}: {e}", exc_info=True)
+
+        # Warn about classes where ALL recipes failed
+        for cls in class_attempted:
+            if class_count.get(cls, 0) == 0:
+                logger.error(
+                    f"All {class_attempted[cls]} recipes for {cls} failed! "
+                    f"Errors: {[e for e in errors if cls in e]}"
+                )
 
         return seeds
 
