@@ -1,13 +1,13 @@
 """Board state evaluation for AI decision-making."""
 from src.simulator.game_state import GameState, MinionState
 
-W_HERO_HP = 1.0
+W_HERO_HP = 1.2
 W_ARMOR = 1.0
 W_BOARD_ATK = 2.0
-W_BOARD_HP = 1.5
+W_BOARD_HP = 1.2
 W_TAUNT = 3.0
 W_DIVINE_SHIELD = 2.0
-W_HAND = 2.0
+W_HAND = 1.5
 W_LETHAL = 1000.0
 
 def _minion_value(m: MinionState) -> float:
