@@ -107,9 +107,9 @@ class RuleBasedAI(BaseAI):
                         score += atk_value * 3.0
                     if opp_hp <= 10:
                         score += atk_value * 5.0
-                    # Moderate late game urgency
-                    if state.turn >= 10:
-                        score += atk_value * 1.5
+                    # Late game: slightly more aggressive
+                    if state.turn >= 12:
+                        score += atk_value * 1.0
             else:
                 defender = opponent.board[a.target_idx]
                 kills = defender.health <= atk_value
@@ -125,16 +125,19 @@ class RuleBasedAI(BaseAI):
                         score = 80  # still need to hit taunt
                 elif kills and survives and defender.attack >= 3:
                     # Trade into real threats when we survive
-                    score = 50 + defender.mana_cost * 2
+                    score = 55 + defender.mana_cost * 2
                 elif kills and survives and defender.attack >= 2:
                     # Trade into moderate threats
-                    score = 35 + defender.mana_cost
+                    score = 40 + defender.mana_cost
+                elif kills and survives:
+                    # Kill a small minion while surviving
+                    score = 20 + defender.mana_cost
                 elif kills and defender.attack >= 3:
                     # Even trade against a real threat
-                    score = 25 + defender.mana_cost
+                    score = 30 + defender.mana_cost
                 else:
-                    # Bad trade or killing tiny things - almost never worth it
-                    score = -30
+                    # Bad trade - not worth it
+                    score = -25
 
             if score > best_score:
                 best_score = score
