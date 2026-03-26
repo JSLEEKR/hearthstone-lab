@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}{{ t['optimize.title'] }} - Hearthstone Lab{% endblock %}
+{% block content %}
+<h1>{{ t['optimize.title'] }}</h1>
+
+<div x-data="optimizerApp()">
+    <div class="filter-bar" style="gap:1rem;">
+        <div style="flex:1;">
+            <label style="font-size:0.85rem;">{{ t['optimize.select_deck'] }}</label>
+            <select x-model="deckId" class="sidebar-input" @change="loadDeckPreview()">
+                <option value="">-- Select --</option>
+                {% for deck in decks %}
+                <option value="{{ deck.id }}">{{ deck.name }} ({{ deck.hero_class }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button class="btn btn-secondary" @click="analyzeDeck()" :disabled="!deckId || analyzing" style="align-self:flex-end;">
+            <span x-show="!analyzing">{{ t['optimize.analyze'] }}</span>
+            <span x-show="analyzing">{{ t['optimize.analyzing'] }}</span>
+        </button>
+        <button class="btn btn-primary" @click="optimizeDeck()" :disabled="!deckId || optimizing" style="align-self:flex-end;">
+            <span x-show="!optimizing">{{ t['optimize.optimize'] }}</span>
+            <span x-show="optimizing">{{ t['optimize.optimizing'] }}</span>
+        </button>
+    </div>
+
+    <!-- Deck preview -->
+    <div x-show="previewCards.length > 0" class="deck-preview" style="max-height:200px;margin-bottom:1rem;">
+        <template x-for="card in previewCards" :key="card.card_id">
+            <div class="deck-preview-card">
+                <span><span class="cost" x-text="card.mana_cost"></span> <span x-text="card.name"></span></span>
+                <span style="color:var(--text-secondary);" x-text="'x' + card.count"></span>
+            </div>
+        </template>
+    </div>
+
+    <!-- Progress bar -->
+    <div x-show="analyzing || optimizing" class="progress-bar">
+        <div class="progress-bar-fill"></div>
+    </div>
+    <div x-show="error" style="color:#e57373;padding:0.75rem;background:var(--bg-secondary);border-radius:4px;margin-top:0.5rem;" x-text="error"></div>
+
+    <!-- Analysis results -->
+    <template x-if="analysisResult">
+        <div style="margin-top:1rem;">
+            <div style="display:flex;gap:1rem;margin-bottom:1rem;">
+                <div class="optimizer-card" style="flex:1;">
+                    <h3>{{ t['optimize.original_wr'] }}</h3>
+                    <div style="font-size:1.5rem;font-weight:bold;color:var(--gold);" x-text="analysisResult.original_winrate.toFixed(1) + '%'"></div>
+                </div>
+                <div class="optimizer-card" style="flex:1;" x-show="analysisResult.optimized_winrate !== undefined">
+                    <h3>{{ t['optimize.optimized_wr'] }}</h3>
+                    <div style="font-size:1.5rem;font-weight:bold;" :style="'color:' + (analysisResult.optimized_winrate > analysisResult.original_winrate ? '#4caf50' : '#e57373')" x-text="analysisResult.optimized_winrate.toFixed(1) + '%'"></div>
+                </div>
+            </div>
+
+            <!-- Underperformers -->
+            <div class="optimizer-card" x-show="analysisResult.underperformers && analysisResult.underperformers.length > 0">
+                <h3>{{ t['optimize.underperformers'] }}</h3>
+                <table class="tournament-table" style="margin-top:0;">
+                    <thead>
+                        <tr>
+                            <th>Card</th>
+                            <th>Score</th>
+                            <th>Play Rate</th>
+                            <th>Drawn WR Delta</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="up in analysisResult.underperformers" :key="up.name">
+                            <tr>
+                                <td x-text="up.name" style="text-align:left;font-weight:600;"></td>
+                                <td x-text="up.score.toFixed(1)"></td>
+                                <td x-text="(up.play_rate * 100).toFixed(0) + '%'"></td>
+                                <td :style="'color:' + (up.drawn_wr_delta >= 0 ? '#4caf50' : '#e57373')" x-text="up.drawn_wr_delta.toFixed(1) + '%'"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Card changes -->
+            <div class="optimizer-card" x-show="analysisResult.card_changes && analysisResult.card_changes.length > 0">
+                <h3>{{ t['optimize.changes'] }}</h3>
+                <template x-for="ch in analysisResult.card_changes" :key="ch.card_removed + ch.card_added">
+                    <div class="change-row">
+                        <span class="out">OUT: <span x-text="ch.card_removed_name"></span></span>
+                        <span style="color:var(--text-secondary);">&#8594;</span>
+                        <span class="in">IN: <span x-text="ch.card_added_name"></span></span>
+                        <span class="delta" :style="'color:' + (ch.delta >= 0 ? '#4caf50' : '#e57373')" x-text="(ch.delta >= 0 ? '+' : '') + ch.delta.toFixed(1) + '%'"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </template>
+</div>
+
+<script>
+function optimizerApp() {
+    return {
+        deckId: '',
+        analyzing: false,
+        optimizing: false,
+        analysisResult: null,
+        previewCards: [],
+        error: '',
+
+        async loadDeckPreview() {
+            if (!this.deckId) { this.previewCards = []; return; }
+            try {
+                const res = await fetch('/api/deck/' + this.deckId + '/cards');
+                const data = await res.json();
+                this.previewCards = data.cards || [];
+            } catch (e) { this.previewCards = []; }
+        },
+
+        async analyzeDeck() {
+            if (!this.deckId) return;
+            this.analyzing = true;
+            this.analysisResult = null;
+            this.error = '';
+            try {
+                const res = await fetch('/api/optimize/analyze?deck_id=' + this.deckId, {method: 'POST'});
+                const data = await res.json();
+                if (data.success) {
+                    this.analysisResult = data;
+                } else {
+                    this.error = data.error || 'Analysis failed';
+                }
+            } catch (e) {
+                this.error = 'Error: ' + e.message;
+            } finally {
+                this.analyzing = false;
+            }
+        },
+
+        async optimizeDeck() {
+            if (!this.deckId) return;
+            this.optimizing = true;
+            this.analysisResult = null;
+            this.error = '';
+            try {
+                const res = await fetch('/api/optimize/run?deck_id=' + this.deckId, {method: 'POST'});
+                const data = await res.json();
+                if (data.success) {
+                    this.analysisResult = data;
+                } else {
+                    this.error = data.error || 'Optimization failed';
+                }
+            } catch (e) {
+                this.error = 'Error: ' + e.message;
+            } finally {
+                this.optimizing = false;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

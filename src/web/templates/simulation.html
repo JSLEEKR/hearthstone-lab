@@ -4,29 +4,75 @@
 <h1>{{ t['sim.title'] }}</h1>
 
 <div x-data="simRunner()">
+    <!-- Deckcode import -->
+    <div class="filter-bar" style="flex-direction:column;gap:0.5rem;">
+        <label style="font-size:0.85rem;color:var(--gold-dim);">{{ t['sim.import_deck'] }}</label>
+        <div style="display:flex;gap:0.5rem;">
+            <input type="text" class="sidebar-input" style="flex:1;" placeholder="AAECAZ..." x-model="importCode">
+            <input type="text" class="sidebar-input" style="width:150px;" placeholder="Deck name" x-model="importName">
+            <button class="btn btn-secondary" @click="importDeck()" :disabled="!importCode">{{ t['sim.import_button'] }}</button>
+        </div>
+        <div x-show="importMessage" style="font-size:0.8rem;color:var(--gold);" x-text="importMessage"></div>
+    </div>
+
     <div class="filter-bar">
-        <select x-model="deckAId">
-            <option value="">{{ t['sim.select_deck_a'] }}</option>
-            {% for deck in decks %}
-            <option value="{{ deck.id }}">{{ deck.name }} ({{ deck.hero_class }})</option>
-            {% endfor %}
-        </select>
-        <span style="color:var(--gold);font-weight:bold;">VS</span>
-        <select x-model="deckBId">
-            <option value="">{{ t['sim.select_deck_b'] }}</option>
-            {% for deck in decks %}
-            <option value="{{ deck.id }}">{{ deck.name }} ({{ deck.hero_class }})</option>
-            {% endfor %}
-        </select>
-        <select x-model="numMatches">
-            <option value="10">10 {{ t['sim.matches'] }}</option>
-            <option value="50">50 {{ t['sim.matches'] }}</option>
-            <option value="100">100 {{ t['sim.matches'] }}</option>
-        </select>
-        <button class="btn btn-primary" @click="runSim()" :disabled="running">
-            <span x-show="!running">{{ t['sim.run'] }}</span>
-            <span x-show="running">{{ t['sim.running'] }}</span>
-        </button>
+        <div style="flex:1;display:flex;flex-direction:column;gap:0.25rem;">
+            <select x-model="deckAId" @change="loadDeckPreview('A')">
+                <option value="">{{ t['sim.select_deck_a'] }}</option>
+                {% for deck in decks %}
+                <option value="{{ deck.id }}">{{ deck.name }} ({{ deck.hero_class }})</option>
+                {% endfor %}
+            </select>
+            <!-- Deck A preview -->
+            <div x-show="deckACards.length > 0" class="deck-preview">
+                <template x-for="card in deckACards" :key="card.card_id">
+                    <div class="deck-preview-card">
+                        <span><span class="cost" x-text="card.mana_cost"></span> <span x-text="card.name"></span></span>
+                        <span style="color:var(--text-secondary);" x-text="'x' + card.count"></span>
+                    </div>
+                </template>
+                <div style="margin-top:0.5rem;">
+                    <canvas :id="'mana-curve-a'" width="200" height="60"></canvas>
+                </div>
+            </div>
+        </div>
+        <span style="color:var(--gold);font-weight:bold;align-self:flex-start;padding-top:0.5rem;">VS</span>
+        <div style="flex:1;display:flex;flex-direction:column;gap:0.25rem;">
+            <select x-model="deckBId" @change="loadDeckPreview('B')">
+                <option value="">{{ t['sim.select_deck_b'] }}</option>
+                {% for deck in decks %}
+                <option value="{{ deck.id }}">{{ deck.name }} ({{ deck.hero_class }})</option>
+                {% endfor %}
+            </select>
+            <!-- Deck B preview -->
+            <div x-show="deckBCards.length > 0" class="deck-preview">
+                <template x-for="card in deckBCards" :key="card.card_id">
+                    <div class="deck-preview-card">
+                        <span><span class="cost" x-text="card.mana_cost"></span> <span x-text="card.name"></span></span>
+                        <span style="color:var(--text-secondary);" x-text="'x' + card.count"></span>
+                    </div>
+                </template>
+                <div style="margin-top:0.5rem;">
+                    <canvas :id="'mana-curve-b'" width="200" height="60"></canvas>
+                </div>
+            </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:0.5rem;align-self:flex-start;">
+            <select x-model="numMatches">
+                <option value="10">10 {{ t['sim.matches'] }}</option>
+                <option value="50">50 {{ t['sim.matches'] }}</option>
+                <option value="100">100 {{ t['sim.matches'] }}</option>
+            </select>
+            <button class="btn btn-primary" @click="runSim()" :disabled="running">
+                <span x-show="!running">{{ t['sim.run'] }}</span>
+                <span x-show="running">{{ t['sim.running'] }}</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Progress bar -->
+    <div x-show="running" class="progress-bar">
+        <div class="progress-bar-fill"></div>
     </div>
 
     <div x-show="result" class="sim-result">
@@ -87,6 +133,84 @@ function simRunner() {
     return {
         deckAId: '', deckBId: '', numMatches: '10', running: false, result: null,
         matchLogs: [],
+        deckACards: [], deckBCards: [],
+        importCode: '', importName: '', importMessage: '',
+        _chartA: null, _chartB: null,
+
+        async importDeck() {
+            if (!this.importCode) return;
+            this.importMessage = '';
+            try {
+                const params = new URLSearchParams({
+                    deckstring: this.importCode,
+                    name: this.importName || 'Imported',
+                });
+                const res = await fetch('/api/simulation/import-deck?' + params, {method: 'POST'});
+                const data = await res.json();
+                if (data.success) {
+                    this.importMessage = 'Imported! Deck ID: ' + data.deck_id + ' - Reload to see it in dropdowns.';
+                    // Try to select it
+                    if (!this.deckAId) this.deckAId = String(data.deck_id);
+                    else if (!this.deckBId) this.deckBId = String(data.deck_id);
+                } else {
+                    this.importMessage = 'Error: ' + (data.error || 'Import failed');
+                }
+            } catch (e) {
+                this.importMessage = 'Error: ' + e.message;
+            }
+        },
+
+        async loadDeckPreview(side) {
+            const deckId = side === 'A' ? this.deckAId : this.deckBId;
+            if (!deckId) {
+                if (side === 'A') this.deckACards = [];
+                else this.deckBCards = [];
+                return;
+            }
+            try {
+                const res = await fetch('/api/deck/' + deckId + '/cards');
+                const data = await res.json();
+                const cards = data.cards || [];
+                if (side === 'A') this.deckACards = cards;
+                else this.deckBCards = cards;
+                // Render mana curve chart after DOM update
+                this.$nextTick(() => this.renderManaCurve(side, cards));
+            } catch (e) {
+                if (side === 'A') this.deckACards = [];
+                else this.deckBCards = [];
+            }
+        },
+
+        renderManaCurve(side, cards) {
+            const canvasId = side === 'A' ? 'mana-curve-a' : 'mana-curve-b';
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            // Destroy old chart
+            if (side === 'A' && this._chartA) this._chartA.destroy();
+            if (side === 'B' && this._chartB) this._chartB.destroy();
+
+            const curve = [0,0,0,0,0,0,0,0];
+            cards.forEach(c => { curve[Math.min(c.mana_cost, 7)] += c.count; });
+
+            const chart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['0','1','2','3','4','5','6','7+'],
+                    datasets: [{ data: curve, backgroundColor: '#ffd700', borderRadius: 2 }]
+                },
+                options: {
+                    responsive: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1, color: '#9d8a6e', font: { size: 9 } }, grid: { color: 'rgba(92,58,30,0.3)' } },
+                        x: { ticks: { color: '#9d8a6e', font: { size: 9 } }, grid: { display: false } },
+                    }
+                }
+            });
+            if (side === 'A') this._chartA = chart;
+            else this._chartB = chart;
+        },
+
         async runSim() {
             if (!this.deckAId || !this.deckBId) { alert('{{ t["sim.select_both"] }}'); return; }
             this.running = true;

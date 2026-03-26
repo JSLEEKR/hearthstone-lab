@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
@@ -75,8 +76,29 @@ def simulation_page(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/tournament")
 def tournament_page(request: Request, db: Session = Depends(get_db)):
+    from src.db.tables import Deck, DeckCard
+    decks = db.query(Deck).order_by(Deck.created_at.desc()).limit(50).all()
+    decks_with_counts = []
+    for d in decks:
+        count = db.query(func.sum(DeckCard.count)).filter_by(deck_id=d.id).scalar() or 0
+        decks_with_counts.append(type('Deck', (), {
+            'id': d.id, 'name': d.name, 'hero_class': d.hero_class,
+            'card_count': int(count),
+        })())
+    return templates.TemplateResponse(request, "tournament.html", _ctx(
+        request, decks=decks_with_counts,
+    ))
+
+
+@router.get("/meta")
+def meta_page(request: Request):
+    return templates.TemplateResponse(request, "meta.html", _ctx(request))
+
+
+@router.get("/optimize")
+def optimize_page(request: Request, db: Session = Depends(get_db)):
     from src.db.tables import Deck
     decks = db.query(Deck).order_by(Deck.created_at.desc()).limit(50).all()
-    return templates.TemplateResponse(request, "tournament.html", _ctx(
+    return templates.TemplateResponse(request, "optimize.html", _ctx(
         request, decks=decks,
     ))

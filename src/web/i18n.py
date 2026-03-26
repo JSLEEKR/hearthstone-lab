@@ -113,6 +113,40 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "tournament.losses": {"en": "L", "ko": "패"},
     "tournament.draws": {"en": "D", "ko": "무"},
     "tournament.rank": {"en": "Rank", "ko": "순위"},
+    "tournament.tier_list": {"en": "Tier List", "ko": "티어 리스트"},
+    "tournament.deck_preview": {"en": "Deck Preview", "ko": "덱 미리보기"},
+
+    # Meta Builder
+    "nav.meta": {"en": "Meta Builder", "ko": "메타 빌더"},
+    "meta.title": {"en": "Meta Tier List Builder", "ko": "메타 티어 리스트 빌더"},
+    "meta.classes": {"en": "Classes", "ko": "직업"},
+    "meta.archetypes": {"en": "Archetypes", "ko": "아키타입"},
+    "meta.matches_per_pair": {"en": "Matches per pair", "ko": "매치업당 대전 수"},
+    "meta.generations": {"en": "Optimization generations", "ko": "최적화 세대"},
+    "meta.max_decks": {"en": "Max decks per class", "ko": "직업별 최대 덱 수"},
+    "meta.build": {"en": "Build Meta", "ko": "메타 빌드"},
+    "meta.building": {"en": "Building... (this may take a while)", "ko": "빌드 중... (시간이 걸릴 수 있습니다)"},
+    "meta.results": {"en": "Results", "ko": "결과"},
+    "meta.total_decks": {"en": "Total decks", "ko": "총 덱 수"},
+    "meta.total_matches": {"en": "Total matches", "ko": "총 매치 수"},
+
+    # Optimizer
+    "nav.optimize": {"en": "Optimizer", "ko": "최적화"},
+    "optimize.title": {"en": "Card Optimizer", "ko": "카드 최적화"},
+    "optimize.select_deck": {"en": "Select a deck to optimize", "ko": "최적화할 덱 선택"},
+    "optimize.analyze": {"en": "Analyze", "ko": "분석"},
+    "optimize.analyzing": {"en": "Analyzing...", "ko": "분석 중..."},
+    "optimize.optimize": {"en": "Optimize", "ko": "최적화"},
+    "optimize.optimizing": {"en": "Optimizing... (this takes a while)", "ko": "최적화 중... (시간이 걸립니다)"},
+    "optimize.underperformers": {"en": "Underperforming Cards", "ko": "부진 카드"},
+    "optimize.changes": {"en": "Suggested Changes", "ko": "변경 사항"},
+    "optimize.original_wr": {"en": "Original Winrate", "ko": "원래 승률"},
+    "optimize.optimized_wr": {"en": "Optimized Winrate", "ko": "최적화 승률"},
+
+    # Simulation extras
+    "sim.import_deck": {"en": "Paste Deckcode", "ko": "덱 코드 붙여넣기"},
+    "sim.import_button": {"en": "Import & Select", "ko": "가져오기 & 선택"},
+    "sim.mana_curve": {"en": "Mana Curve", "ko": "마나 커브"},
 }
 
 # Set names (English)

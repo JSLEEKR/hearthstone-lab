@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}{{ t['meta.title'] }} - Hearthstone Lab{% endblock %}
+{% block content %}
+<h1>{{ t['meta.title'] }}</h1>
+
+<div x-data="metaBuilder()">
+    <div class="filter-bar" style="flex-wrap:wrap;gap:1rem;">
+        <div style="flex:1;min-width:250px;">
+            <h3 style="margin-bottom:0.5rem;">{{ t['meta.classes'] }}</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
+                {% for cls in ['MAGE','WARRIOR','PALADIN','HUNTER','ROGUE','PRIEST','SHAMAN','WARLOCK','DRUID','DEMONHUNTER','DEATHKNIGHT'] %}
+                <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;cursor:pointer;">
+                    <input type="checkbox" value="{{ cls }}" x-model="selectedClasses">
+                    {{ t['class.' + cls] }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        <div style="flex:1;min-width:250px;">
+            <h3 style="margin-bottom:0.5rem;">{{ t['meta.archetypes'] }}</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
+                {% for arch in ['aggro','midrange','control','combo','tempo'] %}
+                <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;cursor:pointer;">
+                    <input type="checkbox" value="{{ arch }}" x-model="selectedArchetypes">
+                    {{ arch|capitalize }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="filter-bar" style="gap:1.5rem;">
+        <div>
+            <label style="font-size:0.85rem;">{{ t['meta.matches_per_pair'] }}</label>
+            <select x-model="matchesPerPair" class="sidebar-input">
+                <option value="5">5</option>
+                <option value="10" selected>10</option>
+                <option value="20">20</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:0.85rem;">{{ t['meta.generations'] }}</label>
+            <select x-model="generations" class="sidebar-input">
+                <option value="1">1</option>
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:0.85rem;">{{ t['meta.max_decks'] }}</label>
+            <select x-model="maxDecksPerClass" class="sidebar-input">
+                <option value="1">1</option>
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" @click="buildMeta()" :disabled="running" style="align-self:flex-end;">
+            <span x-show="!running">{{ t['meta.build'] }}</span>
+            <span x-show="running">{{ t['meta.building'] }}</span>
+        </button>
+    </div>
+
+    <!-- Progress bar -->
+    <div x-show="running" class="progress-bar">
+        <div class="progress-bar-fill"></div>
+    </div>
+    <div x-show="error" style="color:#e57373;padding:0.75rem;background:var(--bg-secondary);border-radius:4px;margin-top:0.5rem;" x-text="error"></div>
+
+    <template x-if="result">
+        <div style="margin-top:1.5rem;">
+            <div style="display:flex;gap:1rem;margin-bottom:1rem;">
+                <div class="optimizer-card" style="flex:1;">
+                    <h3>{{ t['meta.total_decks'] }}</h3>
+                    <div style="font-size:1.5rem;font-weight:bold;color:var(--gold);" x-text="result.total_decks"></div>
+                </div>
+                <div class="optimizer-card" style="flex:1;">
+                    <h3>{{ t['meta.total_matches'] }}</h3>
+                    <div style="font-size:1.5rem;font-weight:bold;color:var(--gold);" x-text="result.total_matches"></div>
+                </div>
+            </div>
+
+            <h2>{{ t['tournament.tier_list'] }}</h2>
+            <template x-for="tier in tierList" :key="tier.label">
+                <div>
+                    <div class="tier-header" x-text="tier.label"></div>
+                    <template x-for="entry in tier.entries" :key="entry.name">
+                        <div class="tier-banner" :class="tier.cssClass">
+                            <span class="deck-name">
+                                <span x-text="entry.name"></span>
+                                <span style="color:var(--text-secondary);font-size:0.85rem;margin-left:0.5rem;" x-text="'(' + entry.hero_class + (entry.archetype ? ', ' + entry.archetype : '') + ')'"></span>
+                            </span>
+                            <span class="deck-wr" x-text="entry.winrate.toFixed(1) + '%'"></span>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </template>
+</div>
+
+<script>
+function metaBuilder() {
+    return {
+        selectedClasses: [],
+        selectedArchetypes: [],
+        matchesPerPair: '10',
+        generations: '2',
+        maxDecksPerClass: '2',
+        running: false,
+        result: null,
+        error: '',
+
+        get tierList() {
+            if (!this.result || !this.result.tier_list) return [];
+            const tiers = [
+                { label: '=== S Tier (60%+) ===', cssClass: 'tier-s', key: 'S' },
+                { label: '=== A Tier (52-60%) ===', cssClass: 'tier-a', key: 'A' },
+                { label: '=== B Tier (48-52%) ===', cssClass: 'tier-b', key: 'B' },
+                { label: '=== C Tier (40-48%) ===', cssClass: 'tier-c', key: 'C' },
+                { label: '=== D Tier (<40%) ===', cssClass: 'tier-d', key: 'D' },
+            ];
+            return tiers.map(t => ({
+                ...t,
+                entries: this.result.tier_list.filter(e => e.tier === t.key)
+            })).filter(t => t.entries.length > 0);
+        },
+
+        async buildMeta() {
+            this.running = true;
+            this.result = null;
+            this.error = '';
+            try {
+                const params = new URLSearchParams({
+                    classes: this.selectedClasses.join(','),
+                    archetypes: this.selectedArchetypes.join(','),
+                    matches_per_pair: this.matchesPerPair,
+                    optimization_generations: this.generations,
+                    max_decks_per_class: this.maxDecksPerClass,
+                });
+                const res = await fetch('/api/meta/run?' + params, {method: 'POST'});
+                const data = await res.json();
+                if (data.success) {
+                    this.result = data;
+                } else {
+                    this.error = data.error || 'Meta build failed';
+                }
+            } catch (e) {
+                this.error = 'Error: ' + e.message;
+            } finally {
+                this.running = false;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

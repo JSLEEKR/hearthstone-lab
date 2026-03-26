@@ -7,13 +7,27 @@
     <div class="filter-bar" style="flex-wrap:wrap;gap:1rem;">
         <div style="flex:1;min-width:300px;">
             <h3 style="margin-bottom:0.5rem;">{{ t['tournament.select_decks'] }}</h3>
-            <div style="max-height:200px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--border-wood);border-radius:4px;padding:0.5rem;">
+            <div style="max-height:200px;overflow-y:auto;background:var(--bg-secondary);border:1px solid var(--border-wood);border-radius:4px;padding:0.5rem;position:relative;">
                 {% for deck in decks %}
-                <label style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;cursor:pointer;">
+                <label style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;cursor:pointer;"
+                       @mouseenter="showPreview({{ deck.id }}, $event)" @mouseleave="hidePreview()">
                     <input type="checkbox" :value="'{{ deck.id }}'" x-model="selectedDecks">
-                    <span>{{ deck.name }} ({{ deck.hero_class }})</span>
+                    <span>{{ deck.name }} ({{ deck.hero_class }}, {{ deck.card_count }}{{ t['common.cards_unit'] }})</span>
                 </label>
                 {% endfor %}
+                <!-- Deck preview popup -->
+                <div class="deck-preview-popup" x-show="previewVisible" x-transition
+                     :style="'top:' + previewY + 'px; left: 100%;'"
+                     @mouseenter="previewVisible = true" @mouseleave="hidePreview()">
+                    <div style="font-weight:bold;color:var(--gold);margin-bottom:0.5rem;" x-text="previewDeckName"></div>
+                    <template x-for="card in previewCards" :key="card.card_id">
+                        <div class="deck-preview-card">
+                            <span><span class="cost" x-text="card.mana_cost"></span> <span x-text="card.name"></span></span>
+                            <span style="color:var(--text-secondary);" x-text="'x' + card.count"></span>
+                        </div>
+                    </template>
+                    <div x-show="previewLoading" style="text-align:center;padding:1rem;color:var(--text-secondary);">Loading...</div>
+                </div>
             </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:0.75rem;">
@@ -41,8 +55,29 @@
         </div>
     </div>
 
+    <!-- Progress bar -->
+    <div x-show="running" class="progress-bar">
+        <div class="progress-bar-fill"></div>
+    </div>
+
     <template x-if="result">
         <div style="margin-top:1.5rem;">
+            <!-- Tier List Section -->
+            <h2>{{ t['tournament.tier_list'] }}</h2>
+            <div style="margin-bottom:1.5rem;">
+                <template x-for="tier in tierList" :key="tier.label">
+                    <div>
+                        <div class="tier-header" x-text="tier.label"></div>
+                        <template x-for="entry in tier.entries" :key="entry.deck">
+                            <div class="tier-banner" :class="tier.cssClass">
+                                <span class="deck-name" x-text="entry.deck"></span>
+                                <span class="deck-wr" x-text="entry.overall_winrate.toFixed(1) + '%'"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+
             <h2>{{ t['tournament.rankings'] }}</h2>
             <table class="tournament-table">
                 <thead>
@@ -89,7 +124,7 @@
                                 <td x-text="row.deck" style="font-weight:600;font-size:0.85rem;"></td>
                                 <template x-for="col in result.rankings" :key="'c_'+row.deck+'_'+col.deck">
                                     <td :style="row.deck === col.deck ? 'background:var(--bg-primary);' : cellColor(result.matrix[row.deck] && result.matrix[row.deck][col.deck])">
-                                        <span x-text="row.deck === col.deck ? '—' : ((result.matrix[row.deck] && result.matrix[row.deck][col.deck]) || 0).toFixed(1) + '%'"></span>
+                                        <span style="font-weight:bold;" x-text="row.deck === col.deck ? '—' : ((result.matrix[row.deck] && result.matrix[row.deck][col.deck]) || 0).toFixed(1) + '%'"></span>
                                     </td>
                                 </template>
                             </tr>
@@ -122,14 +157,63 @@ function tournamentRunner() {
         matchesPerPair: '20',
         running: false,
         result: null,
+        previewVisible: false,
+        previewCards: [],
+        previewDeckName: '',
+        previewLoading: false,
+        previewY: 0,
+        _previewTimeout: null,
+
+        get tierList() {
+            if (!this.result) return [];
+            const tiers = [
+                { label: '=== S Tier (60%+) ===', cssClass: 'tier-s', min: 60, max: 200 },
+                { label: '=== A Tier (52-60%) ===', cssClass: 'tier-a', min: 52, max: 60 },
+                { label: '=== B Tier (48-52%) ===', cssClass: 'tier-b', min: 48, max: 52 },
+                { label: '=== C Tier (40-48%) ===', cssClass: 'tier-c', min: 40, max: 48 },
+                { label: '=== D Tier (<40%) ===', cssClass: 'tier-d', min: 0, max: 40 },
+            ];
+            return tiers.map(t => ({
+                ...t,
+                entries: this.result.rankings.filter(r => r.overall_winrate >= t.min && r.overall_winrate < t.max)
+            })).filter(t => t.entries.length > 0);
+        },
 
         cellColor(wr) {
             if (wr === undefined || wr === null) return '';
-            if (wr >= 60) return 'background:rgba(76,175,80,0.3);';
-            if (wr >= 55) return 'background:rgba(76,175,80,0.15);';
+            // Stronger gradient
+            if (wr >= 70) return 'background:rgba(76,175,80,0.5);color:#fff;';
+            if (wr >= 60) return 'background:rgba(76,175,80,0.35);';
+            if (wr >= 55) return 'background:rgba(76,175,80,0.2);';
             if (wr >= 45) return '';
-            if (wr >= 40) return 'background:rgba(229,115,115,0.15);';
-            return 'background:rgba(229,115,115,0.3);';
+            if (wr >= 40) return 'background:rgba(229,115,115,0.2);';
+            if (wr >= 30) return 'background:rgba(229,115,115,0.35);';
+            return 'background:rgba(229,115,115,0.5);color:#fff;';
+        },
+
+        async showPreview(deckId, event) {
+            clearTimeout(this._previewTimeout);
+            this.previewY = event.target.closest('label').offsetTop;
+            this._previewTimeout = setTimeout(async () => {
+                this.previewLoading = true;
+                this.previewVisible = true;
+                this.previewCards = [];
+                try {
+                    const res = await fetch('/api/deck/' + deckId + '/cards');
+                    const data = await res.json();
+                    this.previewDeckName = data.deck_name || '';
+                    this.previewCards = data.cards || [];
+                } finally {
+                    this.previewLoading = false;
+                }
+            }, 300);
+        },
+
+        hidePreview() {
+            clearTimeout(this._previewTimeout);
+            this._previewTimeout = setTimeout(() => {
+                this.previewVisible = false;
+            }, 200);
         },
 
         async runTournament() {

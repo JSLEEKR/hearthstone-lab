@@ -673,6 +673,269 @@ def list_decks(db: Session = Depends(get_db)):
     ]}
 
 
+@router.get("/deck/{deck_id}/cards")
+def get_deck_cards(deck_id: int, request: Request, db: Session = Depends(get_db)):
+    """Return deck card list for preview panels."""
+    deck = db.query(Deck).filter_by(id=deck_id).first()
+    if not deck:
+        return JSONResponse({"error": "Deck not found"}, status_code=404)
+
+    lang = _get_lang(request)
+    rows = (
+        db.query(DeckCard, Card)
+        .join(Card, DeckCard.card_id == Card.id)
+        .filter(DeckCard.deck_id == deck_id)
+        .order_by(Card.mana_cost, Card.name)
+        .all()
+    )
+    name_field = "name_ko" if lang == "ko" else "name"
+    cards = [
+        {
+            "card_id": card.card_id,
+            "name": getattr(card, name_field) or card.name,
+            "mana_cost": card.mana_cost,
+            "count": dc.count,
+            "rarity": card.rarity,
+            "card_type": card.card_type,
+        }
+        for dc, card in rows
+    ]
+    return {"deck_name": deck.name, "hero_class": deck.hero_class, "cards": cards}
+
+
+@router.post("/simulation/import-deck")
+def import_deck_for_sim(
+    deckstring: str, name: str = "Imported",
+    db: Session = Depends(get_db),
+):
+    """Import a deckstring and save to DB for simulation use."""
+    from src.core.deckstring import decode_deckstring
+    try:
+        decoded = decode_deckstring(deckstring)
+    except Exception:
+        return {"success": False, "error": "Invalid deckstring"}
+
+    hero_dbf = decoded["hero"]
+    hero_card = db.query(Card).filter_by(dbf_id=hero_dbf).first()
+    hero_class = hero_card.hero_class if hero_card else "NEUTRAL"
+
+    deck = Deck(name=name, hero_class=hero_class, format="standard",
+                deckstring=deckstring, source="manual")
+    db.add(deck)
+    db.commit()
+
+    missing_dbfs = []
+    for dbf_id, count in decoded["cards"].items():
+        card = db.query(Card).filter_by(dbf_id=dbf_id).first()
+        if not card:
+            missing_dbfs.append(dbf_id)
+            continue
+        db.add(DeckCard(deck_id=deck.id, card_id=card.id, count=count))
+    db.commit()
+
+    return {"success": True, "deck_id": deck.id,
+            "missing_cards": len(missing_dbfs),
+            "warning": f"{len(missing_dbfs)} cards not found in database" if missing_dbfs else None}
+
+
+@router.post("/meta/run")
+def run_meta_builder(
+    classes: str = "",
+    archetypes: str = "",
+    matches_per_pair: int = 10,
+    optimization_generations: int = 2,
+    max_decks_per_class: int = 2,
+    db: Session = Depends(get_db),
+):
+    """Run the full meta deck building pipeline."""
+    from src.deckbuilder.meta import MetaDeckBuilder
+    try:
+        builder = MetaDeckBuilder(
+            db,
+            classes=[c.strip() for c in classes.split(",") if c.strip()] or None,
+            archetypes=[a.strip() for a in archetypes.split(",") if a.strip()] or None,
+            matches_per_pair=min(matches_per_pair, 50),
+            optimization_generations=min(optimization_generations, 5),
+            max_decks_per_class=min(max_decks_per_class, 5),
+        )
+        report = builder.run()
+        return {
+            "success": True,
+            "tier_list": [
+                {"name": e.deck_name, "hero_class": e.hero_class,
+                 "archetype": e.archetype, "tier": e.tier, "winrate": e.winrate}
+                for e in report.tier_list
+            ],
+            "total_decks": report.total_decks,
+            "total_matches": report.total_matches,
+        }
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+@router.post("/optimize/analyze")
+def analyze_deck(deck_id: int, db: Session = Depends(get_db)):
+    """Run baseline analysis on a deck to identify underperformers."""
+    deck = db.query(Deck).filter_by(id=deck_id).first()
+    if not deck:
+        return JSONResponse({"success": False, "error": "Deck not found"}, status_code=404)
+
+    # Build card_db and deck data
+    from src.deckbuilder.card_optimizer import CardDeckOptimizer
+    deck_data, card_db, opponents = _build_optimizer_data(deck_id, db)
+    if not deck_data:
+        return {"success": False, "error": "Deck has no cards"}
+
+    try:
+        optimizer = CardDeckOptimizer(
+            card_db=card_db,
+            opponent_decks=opponents,
+            games_per_eval=30,
+            max_replacements=0,  # analyze only, no replacements
+        )
+        report = optimizer.optimize_deck(deck_data)
+        return {
+            "success": True,
+            "original_winrate": report.original_winrate,
+            "optimized_winrate": report.original_winrate,
+            "underperformers": report.underperformers[:10],
+            "card_changes": [],
+        }
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+@router.post("/optimize/run")
+def run_optimizer(deck_id: int, db: Session = Depends(get_db)):
+    """Run full optimization on a deck."""
+    deck = db.query(Deck).filter_by(id=deck_id).first()
+    if not deck:
+        return JSONResponse({"success": False, "error": "Deck not found"}, status_code=404)
+
+    from src.deckbuilder.card_optimizer import CardDeckOptimizer
+    deck_data, card_db, opponents = _build_optimizer_data(deck_id, db)
+    if not deck_data:
+        return {"success": False, "error": "Deck has no cards"}
+
+    try:
+        optimizer = CardDeckOptimizer(
+            card_db=card_db,
+            opponent_decks=opponents,
+            games_per_eval=30,
+            max_replacements=5,
+        )
+        report = optimizer.optimize_deck(deck_data)
+        return {
+            "success": True,
+            "original_winrate": report.original_winrate,
+            "optimized_winrate": report.optimized_winrate,
+            "underperformers": report.underperformers[:10],
+            "card_changes": [
+                {
+                    "card_removed": ch.card_removed,
+                    "card_removed_name": ch.card_removed_name,
+                    "card_added": ch.card_added,
+                    "card_added_name": ch.card_added_name,
+                    "original_winrate": ch.original_winrate,
+                    "new_winrate": ch.new_winrate,
+                    "delta": ch.delta,
+                    "z_score": ch.z_score,
+                    "significant": ch.significant,
+                    "games_played": ch.games_played,
+                }
+                for ch in report.card_changes
+            ],
+        }
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+def _build_optimizer_data(deck_id: int, db: Session):
+    """Helper to build deck data, card_db, and opponent list for optimizer."""
+    deck = db.query(Deck).filter_by(id=deck_id).first()
+    if not deck:
+        return None, {}, []
+
+    rows = (
+        db.query(DeckCard, Card)
+        .join(Card, DeckCard.card_id == Card.id)
+        .filter(DeckCard.deck_id == deck_id).all()
+    )
+    if not rows:
+        return None, {}, []
+
+    card_db = {}
+    deck_list = []
+    for dc, card in rows:
+        card_db[card.card_id] = {
+            "card_id": card.card_id, "card_type": card.card_type,
+            "mana_cost": card.mana_cost, "attack": card.attack or 0,
+            "health": card.health or 0, "durability": card.durability or 1,
+            "mechanics": card.mechanics or [],
+            "name": card.name, "text": card.text or "",
+            "rarity": card.rarity or "",
+            "hero_class": card.hero_class or "NEUTRAL",
+        }
+        for _ in range(dc.count):
+            deck_list.append(card.card_id)
+
+    deck_data = {
+        "name": deck.name,
+        "hero": deck.hero_class,
+        "cards": deck_list,
+    }
+
+    # Build opponent decks from other decks in DB (up to 5)
+    opponents = []
+    other_decks = db.query(Deck).filter(Deck.id != deck_id).order_by(Deck.created_at.desc()).limit(5).all()
+    for od in other_decks:
+        orows = (
+            db.query(DeckCard, Card)
+            .join(Card, DeckCard.card_id == Card.id)
+            .filter(DeckCard.deck_id == od.id).all()
+        )
+        if not orows:
+            continue
+        opp_cards = []
+        for odc, ocard in orows:
+            if ocard.card_id not in card_db:
+                card_db[ocard.card_id] = {
+                    "card_id": ocard.card_id, "card_type": ocard.card_type,
+                    "mana_cost": ocard.mana_cost, "attack": ocard.attack or 0,
+                    "health": ocard.health or 0, "durability": ocard.durability or 1,
+                    "mechanics": ocard.mechanics or [],
+                    "name": ocard.name, "text": ocard.text or "",
+                    "rarity": ocard.rarity or "",
+                    "hero_class": ocard.hero_class or "NEUTRAL",
+                }
+            for _ in range(odc.count):
+                opp_cards.append(ocard.card_id)
+        opponents.append({
+            "name": od.name,
+            "hero": od.hero_class,
+            "cards": opp_cards,
+        })
+
+    # Also add all standard collectible cards to card_db for replacement candidates
+    all_cards = db.query(Card).filter(
+        Card.is_standard == True,
+        Card.collectible == True,
+    ).all()
+    for c in all_cards:
+        if c.card_id not in card_db:
+            card_db[c.card_id] = {
+                "card_id": c.card_id, "card_type": c.card_type,
+                "mana_cost": c.mana_cost, "attack": c.attack or 0,
+                "health": c.health or 0, "durability": c.durability or 1,
+                "mechanics": c.mechanics or [],
+                "name": c.name, "text": c.text or "",
+                "rarity": c.rarity or "",
+                "hero_class": c.hero_class or "NEUTRAL",
+            }
+
+    return deck_data, card_db, opponents
+
+
 @router.delete("/deck/{deck_id}")
 def delete_deck(deck_id: int, db: Session = Depends(get_db)):
     deck = db.query(Deck).filter_by(id=deck_id).first()
