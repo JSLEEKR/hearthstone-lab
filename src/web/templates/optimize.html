@@ -128,7 +128,7 @@ function optimizerApp() {
                     this.error = data.error || 'Analysis failed';
                 }
             } catch (e) {
-                this.error = 'Error: ' + e.message;
+                this.error = 'Failed: ' + e.message;
             } finally {
                 this.analyzing = false;
             }
@@ -148,7 +148,7 @@ function optimizerApp() {
                     this.error = data.error || 'Optimization failed';
                 }
             } catch (e) {
-                this.error = 'Error: ' + e.message;
+                this.error = 'Failed: ' + e.message;
             } finally {
                 this.optimizing = false;
             }

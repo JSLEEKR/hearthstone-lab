@@ -153,10 +153,10 @@ function simRunner() {
                     if (!this.deckAId) this.deckAId = String(data.deck_id);
                     else if (!this.deckBId) this.deckBId = String(data.deck_id);
                 } else {
-                    this.importMessage = 'Error: ' + (data.error || 'Import failed');
+                    this.importMessage = 'Failed: ' + (data.error || 'Import failed');
                 }
             } catch (e) {
-                this.importMessage = 'Error: ' + e.message;
+                this.importMessage = 'Failed: ' + e.message;
             }
         },
 

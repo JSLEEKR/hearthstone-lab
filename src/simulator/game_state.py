@@ -34,6 +34,24 @@ class MinionState:
     titan_abilities_used: list[bool] = field(default_factory=lambda: [False, False, False])
     mechanics: list[str] = field(default_factory=list)
 
+    def __post_init__(self):
+        # Sync mechanics list to boolean fields so both representations work
+        _mechanic_map = {
+            "TAUNT": "taunt",
+            "DIVINE_SHIELD": "divine_shield",
+            "STEALTH": "stealth",
+            "WINDFURY": "windfury",
+            "LIFESTEAL": "lifesteal",
+            "POISONOUS": "poisonous",
+            "REBORN": "reborn",
+            "RUSH": "rush",
+            "CHARGE": "charge",
+        }
+        for mech in self.mechanics:
+            attr = _mechanic_map.get(mech)
+            if attr and not getattr(self, attr):
+                setattr(self, attr, True)
+
     def take_damage(self, amount: int) -> int:
         if self.divine_shield and amount > 0:
             self.divine_shield = False

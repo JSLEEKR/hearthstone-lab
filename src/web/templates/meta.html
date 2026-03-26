@@ -145,7 +145,7 @@ function metaBuilder() {
                     this.error = data.error || 'Meta build failed';
                 }
             } catch (e) {
-                this.error = 'Error: ' + e.message;
+                this.error = 'Failed: ' + e.message;
             } finally {
                 this.running = false;
             }
