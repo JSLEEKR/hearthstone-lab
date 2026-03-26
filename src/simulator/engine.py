@@ -239,6 +239,12 @@ class GameEngine:
 
     def resolve_combat(self, attacker: MinionState, defender: MinionState,
                        state: GameState | None = None):
+        # Check secrets before combat resolves (e.g., Freezing Trap)
+        if state is not None:
+            self.check_secrets(state, "attack_minion", attacker=attacker)
+            if attacker.is_dead:
+                return  # Secret killed/removed the attacker
+
         # FORGETFUL: 50% chance to attack a random other target
         if "FORGETFUL" in attacker.mechanics and state is not None:
             if random.random() < 0.5:
@@ -349,6 +355,8 @@ class GameEngine:
     def hero_attack_hero(self, state: GameState):
         player = state.current_player
         opponent = state.opponent
+        # Check secrets before attack resolves (e.g., Explosive Trap)
+        self.check_secrets(state, "attack_hero")
         attack = player.hero.total_attack
         opponent.hero.take_damage(attack)
         player.hero.attacks_this_turn += 1
@@ -1144,39 +1152,72 @@ class GameEngine:
         """Check and trigger opponent secrets based on game events.
 
         Supported triggers:
-        - 'attack_hero': when opponent's hero is attacked
+        - 'attack_hero': when opponent's hero is attacked (by minion or hero)
+        - 'attack_minion': when an opponent minion attacks
         - 'play_minion': when a minion is played
-        - 'play_spell': when a spell is cast (targeting hero)
+        - 'play_spell': when a spell is cast
         """
         opponent = state.opponent
+        player = state.current_player
         if not opponent.secrets:
             return
 
         triggered = None
         for secret_id in opponent.secrets:
             secret_data = self.card_db.get(secret_id, {})
-            text = (secret_data.get("text", "") or "").lower()
+            text = (secret_data.get("text", "") or "")
 
             if trigger == "attack_hero":
-                # Ice Block style: prevent lethal / redirect attack
-                # Explosive Trap: deal damage to attacker
-                if "공격" in text and "영웅" in text:
+                # Explosive Trap: "내 영웅이 공격받으면, 모든 적에게 피해를 $2"
+                if "영웅" in text and "공격" in text and "모든 적" in text:
                     triggered = secret_id
-                    # Simple: deal 2 damage to all enemy minions
+                    # Deal 2 damage to all enemy minions AND enemy hero
+                    for m in player.board:
+                        m.take_damage(2)
+                    player.hero.take_damage(2)
+                    break
+                # Generic attack-hero secret: deal 2 damage to attacker
+                elif "영웅" in text and "공격" in text:
+                    triggered = secret_id
                     attacker = ctx.get("attacker")
                     if attacker and isinstance(attacker, MinionState):
                         attacker.take_damage(2)
                     break
+
+            elif trigger == "attack_minion":
+                # Freezing Trap: "적 하수인이 공격하면" - return attacker to hand
+                if "하수인" in text and "공격" in text and ("손" in text or "돌려" in text):
+                    triggered = secret_id
+                    attacker = ctx.get("attacker")
+                    if attacker and isinstance(attacker, MinionState):
+                        # "Kill" the attacker (remove from board)
+                        attacker.health = 0
+                    break
+
             elif trigger == "play_minion":
-                # Mirror Entity / Snipe style
-                if "하수인" in text and ("소환" in text or "내면" in text):
+                # Mirror Entity: "하수인을 내면" - copy the minion
+                if "하수인" in text and ("소환" in text or "내면" in text) and "복사" in text:
+                    triggered = secret_id
+                    minion = ctx.get("minion")
+                    if minion and not opponent.board_full:
+                        copy = MinionState(
+                            card_id=minion.card_id, name=minion.name,
+                            attack=minion.attack, health=minion.health,
+                            max_health=minion.max_health, mana_cost=minion.mana_cost,
+                            summoned_this_turn=True,
+                        )
+                        opponent.board.append(copy)
+                    break
+                # Snipe: deal 4 damage to played minion
+                elif "하수인" in text and ("소환" in text or "내면" in text):
                     triggered = secret_id
                     minion = ctx.get("minion")
                     if minion:
-                        minion.take_damage(4)  # Snipe-style
+                        minion.take_damage(4)
                     break
+
             elif trigger == "play_spell":
-                # Counterspell style
+                # Counterspell: "주문" + cancel
                 if "주문" in text and ("무효" in text or "방해" in text):
                     triggered = secret_id
                     break
