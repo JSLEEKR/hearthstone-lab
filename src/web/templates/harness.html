@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}3-Agent Harness - Hearthstone Lab{% endblock %}
+{% block content %}
+<h1>3-Agent Harness</h1>
+<p style="color:#aaa;margin-bottom:1.5rem;">
+    Automated update pipeline: <strong>Planner</strong> detects gaps,
+    <strong>Generator</strong> applies fixes,
+    <strong>Evaluator</strong> validates results.
+</p>
+
+<div x-data="harnessApp()">
+    <!-- Action buttons -->
+    <div class="filter-bar" style="gap:1rem;margin-bottom:1.5rem;">
+        <button class="btn" @click="runHarness(false)" :disabled="running"
+                style="background:#4caf50;">
+            <span x-show="!running">Run Full Pipeline</span>
+            <span x-show="running">Running...</span>
+        </button>
+        <button class="btn" @click="runHarness(true)" :disabled="running"
+                style="background:#2196f3;">
+            Dry Run (Planner Only)
+        </button>
+        <button class="btn" @click="loadStatus()" style="background:#666;">
+            Refresh Status
+        </button>
+    </div>
+
+    <!-- Current run result -->
+    <div x-show="result" class="card" style="margin-bottom:1.5rem;padding:1rem;">
+        <h3 style="margin-top:0;">
+            Latest Run:
+            <span :style="'color:' + (result?.status === 'PASS' ? '#4caf50' :
+                          result?.status === 'DRY_RUN' ? '#2196f3' :
+                          result?.status === 'NO_UPDATES_NEEDED' ? '#ff9800' : '#f44336')"
+                  x-text="result?.status"></span>
+        </h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+            <div>
+                <h4 style="color:#aaa;margin-bottom:0.5rem;">Summary</h4>
+                <pre style="background:#1a1a2e;padding:0.75rem;border-radius:4px;font-size:0.85rem;white-space:pre-wrap;" x-text="result?.summary"></pre>
+            </div>
+            <div>
+                <h4 style="color:#aaa;margin-bottom:0.5rem;">Spec</h4>
+                <pre style="background:#1a1a2e;padding:0.75rem;border-radius:4px;font-size:0.85rem;white-space:pre-wrap;" x-text="result?.spec_summary"></pre>
+            </div>
+        </div>
+        <div x-show="result?.feedback_summary" style="margin-top:1rem;">
+            <h4 style="color:#aaa;margin-bottom:0.5rem;">QA Feedback</h4>
+            <pre style="background:#1a1a2e;padding:0.75rem;border-radius:4px;font-size:0.85rem;white-space:pre-wrap;" x-text="result?.feedback_summary"></pre>
+        </div>
+    </div>
+
+    <!-- Run history -->
+    <div x-show="runs.length > 0">
+        <h3>Run History</h3>
+        <table class="data-table" style="width:100%;">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Status</th>
+                    <th>Rounds</th>
+                    <th>Duration</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="(run, idx) in runs.slice().reverse()" :key="idx">
+                    <tr>
+                        <td x-text="runs.length - idx"></td>
+                        <td>
+                            <span :style="'color:' + (run.status === 'PASS' ? '#4caf50' :
+                                          run.status === 'NO_UPDATES_NEEDED' ? '#ff9800' : '#f44336')"
+                                  x-text="run.status"></span>
+                        </td>
+                        <td x-text="run.rounds"></td>
+                        <td x-text="run.duration?.toFixed(1) + 's'"></td>
+                        <td x-text="run.error || '-'" style="color:#f44336;"></td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+
+    <div x-show="runs.length === 0 && !result" style="color:#666;text-align:center;padding:3rem;">
+        No harness runs yet. Click "Run Full Pipeline" or "Dry Run" to start.
+    </div>
+</div>
+
+<script>
+function harnessApp() {
+    return {
+        running: false,
+        result: null,
+        runs: [],
+
+        init() {
+            this.loadStatus();
+        },
+
+        async runHarness(dryRun) {
+            this.running = true;
+            this.result = null;
+            try {
+                const resp = await fetch(`/api/harness/run?dry_run=${dryRun}`, {method: 'POST'});
+                this.result = await resp.json();
+                this.loadStatus();
+            } catch (e) {
+                this.result = {status: 'ERROR', summary: e.message, spec_summary: '', feedback_summary: ''};
+            } finally {
+                this.running = false;
+            }
+        },
+
+        async loadStatus() {
+            try {
+                const resp = await fetch('/api/harness/status');
+                const data = await resp.json();
+                this.runs = data.runs || [];
+            } catch (e) {
+                console.error('Failed to load harness status:', e);
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

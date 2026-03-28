@@ -953,3 +953,33 @@ def delete_deck(deck_id: int, db: Session = Depends(get_db)):
     return {"success": True}
 
 
+# --- Harness endpoints ---
+
+@router.post("/harness/run")
+def trigger_harness(dry_run: bool = False):
+    from harness.orchestrator import Orchestrator
+    from harness.config import HarnessConfig
+    config = HarnessConfig()
+    orch = Orchestrator(config)
+    result = orch.run(dry_run=dry_run)
+    return {
+        "success": True,
+        "status": result.status,
+        "rounds": result.rounds,
+        "duration": result.duration_seconds,
+        "summary": result.summary(),
+        "spec_summary": result.spec.summary() if result.spec else "",
+        "feedback_summary": result.feedback.summary() if result.feedback else "",
+    }
+
+
+@router.get("/harness/status")
+def harness_status():
+    import json as json_mod
+    from pathlib import Path
+    log_path = Path(".harness/run-log.json")
+    if log_path.exists():
+        return {"runs": json_mod.loads(log_path.read_text())}
+    return {"runs": []}
+
+

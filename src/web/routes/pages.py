@@ -102,3 +102,8 @@ def optimize_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "optimize.html", _ctx(
         request, decks=decks,
     ))
+
+
+@router.get("/harness")
+def harness_page(request: Request):
+    return templates.TemplateResponse(request, "harness.html", _ctx(request))
